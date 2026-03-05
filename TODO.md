@@ -1,6 +1,6 @@
 # TODO 
 
-- [ ] Stateful memory (ie. a `seq[]` of previous messages to add to them) 
+- [x] Stateful memory (ie. a `seq[]` of previous messages to add to them) 
 
 Maintain a seq of message objects that grows over the conversation. Each time you call the API, send the full history. Append the assistant's response to the history after each completion.
 

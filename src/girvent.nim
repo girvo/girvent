@@ -4,8 +4,9 @@ import std/options
 import dotenv
 import httpclient
 import jsony
-import openai
 import noise
+import ./openai
+import ./tools
 
 # We need to load the .env file first
 load()
@@ -31,7 +32,7 @@ client.headers = newHttpHeaders({
 proc sendReq(): ChatResponse =
   try:
     let
-      body = initRequestBody(modelId, messages, none(seq[ToolDefinition]))
+      body = initRequestBody(modelId, messages, some(tools.allTools))
       response = client.request(apiUrl, httpMethod = HttpPost, body = body.toJson())
     if response.status != "200 OK":
       let error = response.body.fromJson(ChatErrorResponse)
@@ -42,7 +43,6 @@ proc sendReq(): ChatResponse =
   except:
     let error = initCustomError("Could not parse body: " & getCurrentExceptionMsg())
     return ChatResponse(kind: err, error: error)
-
 
 proc runAgent() =
   var noise = Noise.init()
@@ -86,6 +86,8 @@ proc runAgent() =
           echo choice.message.content.get()
           # TODO: Probably compact instead, right?
         of toolCalls:
+          if choice.message.content.isSome():
+            echo choice.message.content.get()
           echo "Okay time for tool calls"
       of err:
         # Drop messages that caused the error

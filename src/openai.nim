@@ -13,20 +13,27 @@ type
     toolCalls = "tool_calls"
     length = "length"
     contentFilter = "content_filter"
+
+  # Tool handling
+  ToolName* = enum
+    readFile = "read_file",
+    listDirectory = "list_directory"
   ToolDefinitionFunction* = object
-    name*: string
+    name*: ToolName
     description*: string
     parameters*: JsonNode
   ToolDefinition* = object
     `type`*: string
     function*: ToolDefinitionFunction
   ToolCallFunction* = object
-    name*: string
+    name*: ToolName
     arguments*: string
   ToolCall* = object
     id*: string
     `type`*: string
     function*: ToolCallFunction
+
+  # Messages and choices
   Message* = object
     role*: Role
     content*: Option[string]

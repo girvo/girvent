@@ -1,11 +1,11 @@
 import std/os
 import std/httpclient
-import std/json
 import std/options
 import dotenv
 import httpclient
 import jsony
 import openai
+import noise
 
 # We need to load the .env file first
 load()
@@ -45,11 +45,17 @@ proc sendReq(): ChatResponse =
 
 
 proc runAgent() =
+  var noise = Noise.init()
+  let prompt = Styler.init(fgGreen, "> ")
+  noise.setPrompt(prompt)
+
   messages.add(systemPrompt)
 
   while true:
-    stdout.write("Input: ")
-    let input = readLine(stdin)
+    let read = noise.readLine()
+    if not read: break
+
+    let input = noise.getLine()
     if input == "/quit":
       echo "Goodbye"
       break
@@ -63,7 +69,11 @@ proc runAgent() =
       let res = sendReq()
       case res.kind
       of ok:
-        echo "yep"
+        # This is "safe" enough as we always get choices len 1 back
+        let choice = res.response.choices[0]
+        messages.add(choice.message)
+        if choice.finishReason == stop:
+          echo "yep"
       of err:
         echo "nope"
     echo ""

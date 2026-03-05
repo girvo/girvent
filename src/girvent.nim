@@ -66,18 +66,33 @@ proc runAgent() =
     else:
       messages.add(initMessage(Role.user, input))
       echo "\nThinking...\n"
-      let res = sendReq()
+      let
+        currentLen = messages.len
+        res = sendReq()
       case res.kind
       of ok:
         # This is "safe" enough as we always get choices len 1 back
         let choice = res.response.choices[0]
         messages.add(choice.message)
-        if choice.finishReason == stop:
-          echo "yep"
-      of err:
-        echo "nope"
-    echo ""
 
+        case choice.finishReason
+        of stop:
+          echo choice.message.content.get()
+        of contentFilter:
+          echo "Hit a content filter, oop"
+          discard messages.pop()
+        of length:
+          echo "Hit length condition, printing anyway:"
+          echo choice.message.content.get()
+          # TODO: Probably compact instead, right?
+        of toolCalls:
+          echo "Okay time for tool calls"
+      of err:
+        # Drop messages that caused the error
+        messages.setLen(currentLen)
+        Styler.init(fgRed, "Error returned:").show()
+        echo res.error.error.message
+    echo ""
 
 when isMainModule:
   runAgent()

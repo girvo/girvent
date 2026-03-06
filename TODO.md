@@ -4,11 +4,11 @@
 
 Maintain a seq of message objects that grows over the conversation. Each time you call the API, send the full history. Append the assistant's response to the history after each completion.
 
-- [ ] Tool definitions and response parsing
+- [x] Tool definitions and response parsing
 
 Define a small set of tools in the OpenAI function-calling schema and include them in your API request. Start with just two: `read_file(path)` and `list_directory(path)`. Don't execute them yet — just parse the response to detect when the model returns a tool_calls array instead of (or alongside) regular content. Print out what tool the model wants to call and with what arguments.
 
-- [ ] Agent loop
+- [x] Agent loop
 
 Implement the actual tool execution cycle:
 

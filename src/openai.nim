@@ -1,5 +1,6 @@
 import std/options
 import std/json
+import jsony
 
 # Base types to build request/responses
 type
@@ -79,6 +80,13 @@ type
 proc initMessage*(role: Role, content: string): Message =
   return Message(role: role, content: some(content))
 
+proc initToolCallMessage*(id: string, content: string): Message =
+  return Message(
+    role: tool,
+    content: some(content),
+    toolCallId: some(id)
+  )
+
 proc initRequestBody*(
   model: string,
   messages: seq[Message],
@@ -99,3 +107,50 @@ proc initCustomError*(errorMessage: string): ChatErrorResponse =
     ),
     requestId: ""
   )
+
+# These are handlers to serialise "toolCall" into "tool_call" and remove
+# none() fields from the JSON output
+proc dumpHook*(s: var string, v: Message) =
+  s.add '{'
+  s.add "\"role\":"
+  s.dumpHook(v.role)
+  if v.content.isSome:
+    s.add ",\"content\":"
+    s.dumpHook(v.content.get())
+  else:
+    s.add ",\"content\":null"
+  if v.toolCalls.isSome:
+    s.add ",\"tool_calls\":"
+    s.dumpHook(v.toolCalls.get())
+  if v.toolCallId.isSome:
+    s.add ",\"tool_call_id\":"
+    s.dumpHook(v.toolCallId.get())
+  s.add '}'
+
+proc dumpHook*(s: var string, v: Choice) =
+  s.add '{'
+  s.add "\"index\":"
+  s.dumpHook(v.index)
+  s.add ",\"finish_reason\":"
+  s.dumpHook(v.finishReason)
+  s.add ",\"message\":"
+  s.dumpHook(v.message)
+  s.add '}'
+
+proc dumpHook*(s: var string, v: Usage) =
+  s.add '{'
+  s.add "\"prompt_tokens\":"
+  s.dumpHook(v.promptTokens)
+  s.add ",\"completion_tokens\":"
+  s.dumpHook(v.completionTokens)
+  s.add ",\"total_tokens\":"
+  s.dumpHook(v.totalTokens)
+  s.add '}'
+
+proc dumpHook*(s: var string, v: ChatErrorResponse) =
+  s.add '{'
+  s.add "\"error\":"
+  s.dumpHook(v.error)
+  s.add ",\"request_id\":"
+  s.dumpHook(v.requestId)
+  s.add '}'

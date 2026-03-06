@@ -1,4 +1,6 @@
 import std/json
+import std/os
+import std/sequtils
 import openai
 
 
@@ -39,3 +41,15 @@ let
   )
 
 var allTools* = @[readFile, listDirectory]
+
+proc callListDirectory*(path: string): string =
+  var res = ""
+  for kind, path in walkDir(path, relative=true):
+    if kind == pcFile:
+      res.add(path & "\n")
+    if kind == pcDir:
+      res.add(path & "/\n")
+  return res
+
+when isMainModule:
+  callListDirectory(".")

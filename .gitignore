@@ -1,3 +1,4 @@
 .env
 /girvent
-/src/tools
+/src/*
+!/src/*.nim

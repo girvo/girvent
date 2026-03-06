@@ -1,14 +1,15 @@
 import std/os
-import std/files
 import std/httpclient
 import std/options
 import std/json
+import std/strutils
+import std/terminal
 import dotenv
-import httpclient
 import jsony
 import noise
 import ./openai
 import ./tools
+import ./md_ansi
 
 # We need to load the .env file first
 load()
@@ -31,18 +32,35 @@ client.headers = newHttpHeaders({
   "Authorization": "Bearer " & apiKey
 })
 
+proc printSeparator() =
+  let width = terminalWidth()
+  Styler.init(fgBlack, styleBright, "─".repeat(width) & "\n").show()
+
+proc showToolCall(name: string, args: JsonNode) =
+  stdout.write(ansiStyleCode(styleDim) & "[tool] " & ansiResetCode)
+  stdout.write("\e[48;5;237m " & name & " \e[0m")
+  if args.len > 0:
+    stdout.write(ansiStyleCode(styleDim) & "  ")
+    for key, val in args.pairs:
+      stdout.write(key & "=" & val.getStr(val.pretty))
+    stdout.write(ansiResetCode)
+  stdout.write("\n")
+  stdout.flushFile()
+
 proc sendReq(): ChatResponse =
+  var rawBody = ""
   try:
     let body = initRequestBody(modelId, messages, some(tools.allTools))
     let response = client.request(apiUrl, httpMethod = HttpPost, body = body.toJson())
+    rawBody = response.body
     if response.status != "200 OK":
-      let error = response.body.fromJson(ChatErrorResponse)
+      let error = rawBody.fromJson(ChatErrorResponse)
       return ChatResponse(kind: err, error: error)
     else:
-      let parsed = response.body.fromJson(ChatCompletionResponse)
+      let parsed = rawBody.fromJson(ChatCompletionResponse)
       return ChatResponse(kind: ok, response: parsed)
   except:
-    let error = initCustomError("Could not parse body: " & getCurrentExceptionMsg())
+    let error = initCustomError(getCurrentExceptionMsg() & "\nRaw body: " & rawBody)
     return ChatResponse(kind: err, error: error)
 
 proc runAgent() =
@@ -61,7 +79,8 @@ proc runAgent() =
       echo "Goodbye"
       break
     if input == "/clear":
-      echo "Clearing thread..."
+      stdout.eraseScreen()
+      stdout.setCursorPos(0, 0)
       messages.reset()
       messages.add(systemPrompt)
     else:
@@ -78,13 +97,14 @@ proc runAgent() =
 
         case choice.finishReason
         of stop:
-          echo "\n" & choice.message.content.get()
+          printSeparator()
+          echo choice.message.content.get().renderMarkdown() & "\n"
         of contentFilter:
           echo "Hit a content filter, oop"
           discard messages.pop()
         of length:
           echo "Hit length condition, printing anyway:"
-          echo choice.message.content.get()
+          echo choice.message.content.get().renderMarkdown()
           # TODO: Probably compact instead, right?
         of toolCalls:
           # Inner tool calling loop time
@@ -97,10 +117,10 @@ proc runAgent() =
               messages.setLen(currentLen)
               break
             if choice.message.content.isSome():
-              echo choice.message.content.get()
+              echo choice.message.content.get().renderMarkdown()
             for toolCall in choice.message.toolCalls.get():
               let args = parseJson(toolCall.function.arguments)
-              Styler.init(fgYellow, "[tool] Calling " & $toolCall.function.name & "\n").show()
+              showToolCall($toolCall.function.name, args)
 
               case toolCall.function.name
               of readFile:
@@ -122,7 +142,8 @@ proc runAgent() =
 
               case choice.finishReason
               of stop:
-                echo "\n" & choice.message.content.get()
+                printSeparator()
+                echo choice.message.content.get().renderMarkdown() & "\n"
                 break # inner loop
               of toolCalls:
                 continue
@@ -134,7 +155,6 @@ proc runAgent() =
         messages.setLen(currentLen)
         Styler.init(fgRed, "Error returned: ").show()
         echo res.error.error.message
-    echo ""
 
 when isMainModule:
   runAgent()

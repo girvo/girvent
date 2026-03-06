@@ -1,43 +1,46 @@
+# Markdown -> ANSI (terminal) parser
 import std/terminal
 import std/strutils
 import std/lists
 import markdown
 
-proc renderChildren(token: Token): string
+proc renderChildren(token: Token, resetTo: string = ansiResetCode): string
 
-proc renderAnsi*(token: Token): string =
+proc renderAnsi*(token: Token, resetTo: string = ansiResetCode): string =
   var output = ""
 
   if token of Heading:
     let heading = Heading(token)
-    let children = renderChildren(token)
+    let (color, reset) = block:
+      if heading.level == 1:
+        (ansiForegroundColorCode(fgCyan) & ansiStyleCode(styleBright) & ansiStyleCode(styleUnderscore), ansiResetCode)
+      elif heading.level == 2:
+        (ansiForegroundColorCode(fgCyan) & ansiStyleCode(styleBright), ansiResetCode)
+      else:
+        (ansiForegroundColorCode(fgCyan), ansiResetCode)
+    let children = renderChildren(token, color)
+    output.add(color)
     if heading.level == 1:
-      output.add(ansiForegroundColorCode(fgCyan) & ansiStyleCode(styleBright) & ansiStyleCode(styleUnderscore))
       output.add(children.toUpperAscii())
-      output.add(ansiResetCode & "\n")
-    elif heading.level == 2:
-      output.add(ansiForegroundColorCode(fgCyan) & ansiStyleCode(styleBright))
-      output.add(children)
-      output.add(ansiResetCode & "\n")
     else:
-      output.add(ansiForegroundColorCode(fgCyan))
       output.add(children)
-      output.add(ansiResetCode & "\n")
+    output.add(reset & "\n")
 
   elif token of Strong:
+    let bold = resetTo & ansiStyleCode(styleBright)
     output.add(ansiStyleCode(styleBright))
-    output.add(renderChildren(token))
-    output.add(ansiResetCode)
+    output.add(renderChildren(token, bold))
+    output.add(resetTo)
 
   elif token of Em:
     output.add(ansiStyleCode(styleItalic))
-    output.add(renderChildren(token))
-    output.add(ansiResetCode)
+    output.add(renderChildren(token, resetTo & ansiStyleCode(styleItalic)))
+    output.add(resetTo)
 
   elif token of CodeSpan:
-    output.add(ansiForegroundColorCode(fgYellow))
-    output.add(renderChildren(token))
-    output.add(ansiResetCode)
+    output.add("\e[38;5;215m")  # soft orange/peach fg
+    output.add(token.doc)
+    output.add(ansiResetCode & resetTo)
 
   elif token of CodeBlock:
     let codeBlock = CodeBlock(token)
@@ -49,20 +52,23 @@ proc renderAnsi*(token: Token): string =
 
   elif token of Paragraph:
     output.add(renderChildren(token))
-    output.add("\n")
+    output.add("\n\n")
 
   elif token of Ul:
     for child in token.children:
       output.add("  • ")
+      var item = ""
       if child of Li:
         for inner in child.children:
           if inner of Paragraph:
-            output.add(renderChildren(inner))
+            item.add(renderChildren(inner))
           else:
-            output.add(renderAnsi(inner))
+            item.add(renderAnsi(inner))
       else:
-        output.add(renderAnsi(child))
+        item.add(renderAnsi(child))
+      output.add(item.strip(leading = false, chars = {'\n'}))
       output.add("\n")
+    output.add("\n\n")
 
   elif token of Ol:
     var index = 1
@@ -70,16 +76,19 @@ proc renderAnsi*(token: Token): string =
       index = Ol(token).start
     for child in token.children:
       output.add("  " & $index & ". ")
+      var item = ""
       if child of Li:
         for inner in child.children:
           if inner of Paragraph:
-            output.add(renderChildren(inner))
+            item.add(renderChildren(inner))
           else:
-            output.add(renderAnsi(inner))
+            item.add(renderAnsi(inner))
       else:
-        output.add(renderAnsi(child))
+        item.add(renderAnsi(child))
+      output.add(item.strip(leading = false, chars = {'\n'}))
       output.add("\n")
       inc(index)
+    output.add("\n\n")
 
   elif token of Li:
     output.add("  • ")
@@ -89,17 +98,18 @@ proc renderAnsi*(token: Token): string =
   elif token of Link:
     let link = Link(token)
     output.add(ansiStyleCode(styleUnderscore) & ansiForegroundColorCode(fgGreen))
-    output.add(renderChildren(token))
-    output.add(ansiResetCode)
-    output.add(ansiStyleCode(styleDim) & " (" & link.url & ")" & ansiResetCode)
+    output.add(renderChildren(token, resetTo))
+    output.add(resetTo)
+    if link.url.len > 0 and not link.url.startsWith("#"):
+      output.add(ansiStyleCode(styleDim) & " (" & link.url & ")" & resetTo)
 
   elif token of Blockquote:
     output.add(ansiForegroundColorCode(fgMagenta) & "│ ")
-    output.add(renderChildren(token))
-    output.add(ansiResetCode)
+    output.add(renderChildren(token, ansiForegroundColorCode(fgMagenta)))
+    output.add(ansiResetCode & "\n\n")
 
   elif token of ThematicBreak:
-    output.add("─".repeat(40) & "\n")
+    output.add("─".repeat(40) & "\n\n")
 
   elif token of SoftBreak:
     output.add(" ")
@@ -114,20 +124,21 @@ proc renderAnsi*(token: Token): string =
     output.add(renderChildren(token))
 
   else:
-    output.add(renderChildren(token))
+    output.add(renderChildren(token, resetTo))
 
   return output
 
-proc renderChildren(token: Token): string =
+proc renderChildren(token: Token, resetTo: string = ansiResetCode): string =
   var output = ""
   for child in token.children:
-    output.add(renderAnsi(child))
+    output.add(renderAnsi(child, resetTo))
   return output
 
+# The actual markdown -> ansi renderer
 proc renderMarkdown*(input: string): string =
   var root = Document()
   discard markdown(input, root = root)
-  return renderAnsi(root)
+  return renderAnsi(root).strip(leading = false, chars = {'\n'})
 
 when isMainModule:
   let testInput = """

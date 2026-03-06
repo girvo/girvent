@@ -1,3 +1,5 @@
+## OpenAI-compatible LLM API type definitions for parsing
+
 import std/options
 import std/json
 import jsony

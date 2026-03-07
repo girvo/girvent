@@ -34,11 +34,11 @@ client.headers = newHttpHeaders({
 
 proc printSeparator() =
   let width = terminalWidth()
-  Styler.init(fgBlack, styleBright, "─".repeat(width) & "\n").show()
+  styledEcho(fgBlack, styleBright, "─".repeat(width))
 
 proc showToolCall(name: string, args: JsonNode) =
   stdout.write(ansiStyleCode(styleDim) & "[tool] " & ansiResetCode)
-  stdout.write("\e[48;5;237m " & name & " \e[0m")
+  stdout.write(ansiBackgroundColorCode(c256DarkGray) & " " & name & " " & ansiResetCode)
   if args.len > 0:
     stdout.write(ansiStyleCode(styleDim) & "  ")
     for key, val in args.pairs:
@@ -85,7 +85,7 @@ proc runAgent() =
       messages.add(systemPrompt)
     else:
       messages.add(initMessage(Role.user, input))
-      Styler.init(fgBlack, "\nThinking...\n").show()
+      styledEcho("\n", fgBlack, "Thinking...\n")
       let
         currentLen = messages.len
         res = sendReq()
@@ -113,7 +113,7 @@ proc runAgent() =
           while true:
             inc iterationCount
             if iterationCount >= 30:
-              Styler.init(fgRed, "Loop error: too many iterations " & $iterationCount).show()
+              styledEcho(fgRed, "Loop error: too many iterations " & $iterationCount)
               messages.setLen(currentLen)
               break
             if choice.message.content.isSome():
@@ -133,7 +133,7 @@ proc runAgent() =
             if res.kind == err:
               # Drop messages that caused the error
               messages.setLen(currentLen)
-              Styler.init(fgRed, "Error returned: ").show()
+              styledEcho(fgRed, "Error returned: ")
               echo res.error.error.message
               break
             else:
@@ -153,7 +153,7 @@ proc runAgent() =
       of err:
         # Drop messages that caused the error
         messages.setLen(currentLen)
-        Styler.init(fgRed, "Error returned: ").show()
+        styledEcho(fgRed, "Error returned: ")
         echo res.error.error.message
 
 when isMainModule:

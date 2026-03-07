@@ -4,6 +4,13 @@ import std/strutils
 import std/lists
 import markdown
 
+type Color256* = enum
+  c256SoftOrange = 215
+  c256DarkGray   = 237
+
+proc ansiForegroundColorCode*(c: Color256): string = "\e[38;5;" & $ord(c) & "m"
+proc ansiBackgroundColorCode*(c: Color256): string = "\e[48;5;" & $ord(c) & "m"
+
 proc renderChildren(token: Token, resetTo: string = ansiResetCode): string
 
 proc renderAnsi*(token: Token, resetTo: string = ansiResetCode): string =
@@ -38,7 +45,7 @@ proc renderAnsi*(token: Token, resetTo: string = ansiResetCode): string =
     output.add(resetTo)
 
   elif token of CodeSpan:
-    output.add("\e[38;5;215m")  # soft orange/peach fg
+    output.add(ansiForegroundColorCode(c256SoftOrange))
     output.add(token.doc)
     output.add(ansiResetCode & resetTo)
 

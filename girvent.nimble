@@ -13,5 +13,4 @@ bin           = @["girvent"]
 requires "nim >= 2.2.8"
 requires "dotenv >= 2.0.0"
 requires "markdown#head"
-requires "noise >= 0.1.10"
 requires "jsony >= 1.1.6"

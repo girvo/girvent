@@ -1,6 +1,6 @@
-# TODO 
+# TODO
 
-- [x] Stateful memory (ie. a `seq[]` of previous messages to add to them) 
+- [x] Stateful memory (ie. a `seq[]` of previous messages to add to them)
 
 Maintain a seq of message objects that grows over the conversation. Each time you call the API, send the full history. Append the assistant's response to the history after each completion.
 
@@ -19,20 +19,21 @@ Implement the actual tool execution cycle:
 5. Call the API again with the updated history
 6. Repeat until the model responds with plain text (no more tool calls)
 
-- [ ] Expand toolset
+- [x] Expand toolset
 
-Add the tools that make it a coding agent: `write_file(path, content)`, `run_command(command)` (with a subprocess call), and maybe `search_files(pattern)` using rg or similar.
+`write_file(path, content)` and `exec_bash(cmd)` implemented. Both require explicit user confirmation before executing. `exec_bash` runs through bash (located via `findExe`) and truncates output at 200 lines.
 
-- [ ] User Confirmation & Output Formatting
+- [x] User Confirmation & Output Formatting
 
-Add a confirmation prompt before executing destructive tools (write_file, run_command). Add some basic terminal formatting — maybe color the model's text differently from tool output, show a spinner while waiting, display tool calls in a structured way rather than raw JSON.
+Confirmation prompts before write_file and exec_bash with Y/n (default yes), Enter to accept, Escape or n to reject. Terminal formatting with dim/styled tool call display, content preview (truncated at 16 lines), and markdown→ANSI rendering for model responses.
 
 - [ ] System Prompt Engineering
 
-Iterate on your system prompt. Tell the model what tools it has, how to use them, when to read files before editing, to think step-by-step, to verify its work by reading files after writing them. This is where you'll spend surprisingly large amounts of time.
+Iterate on the system prompt. Tell the model what tools it has, how to use them, when to read files before editing, to think step-by-step, to verify its work by reading files after writing them.
 
 - [ ] Optional Extensions
     - [ ] Streaming — switch from waiting for the full response to streaming tokens as they arrive (SSE parsing)
-    - [ ] Context management — summarize or truncate history when you approach token limits
+    - [ ] Context management — summarize or truncate history when you approach token limits; currently the `length` finish reason just prints and continues
+    - [ ] Parallel tool calls — scatter-gather multiple tool calls in a single response instead of executing them serially
     - [ ] Multi-file edits — teach the model to use diff/patch style edits instead of rewriting whole files
-    - [ ] Error recovery — if a command fails, feed the error back and let the model retry
+    - [ ] Search tool — add `search_files(pattern)` using rg or similar

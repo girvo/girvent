@@ -105,6 +105,7 @@ proc confirmPrompt(label: string): bool =
   var noise = Noise.init()
   noise.setPrompt(Styler.init(fgYellow, "  " & label & " [Y/n] "))
   if not noise.readLine(): return false
+  if noise.getKeyType() == ktEsc: return false
   return noise.getLine() in ["", "y", "Y"]
 
 proc promptWriteFile*(path: string, content: string): bool =

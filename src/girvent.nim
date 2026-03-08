@@ -144,7 +144,7 @@ proc runAgent() =
                   messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
               of ToolName.execBash:
                 let cmd = args["cmd"].getStr()
-                showToolCall($toolCall.function.name, %*{"cmd": cmd})
+                showToolCall($toolCall.function.name, newJObject())
                 if promptExecBash(cmd):
                   messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd)))
                 else:

@@ -136,7 +136,6 @@ proc slashCompletionHook(noise: var Noise, text: string): int =
   let line = noise.getLine()
   if line.len > 0 and line[0] == '/':
     if line.startsWith("/model "):
-      # text is just the current word (model name partial)
       for mdl in AllModels:
         if mdl.id.startsWith(text):
           noise.addCompletion(mdl.id)
@@ -151,20 +150,42 @@ proc printSeparator() =
   let width = terminalWidth()
   styledEcho(fgBlack, styleBright, "─".repeat(width))
 
+proc normalizePathForDisplay(path: string): string =
+  ## Normalize a path for display: show relative if within CWD, absolute otherwise
+  let
+    cwd = getCurrentDir()
+    absolutePath = if path.isAbsolute: path else: cwd / path
+    normalizedAbsolute = absolutePath.absolutePath
+    normalizedCwd = cwd.absolutePath
+
+  if normalizedAbsolute.startsWith(normalizedCwd):
+    let relativePath = normalizedAbsolute[normalizedCwd.len + 1 ..^ 1]
+    if relativePath == "":
+      return "."
+    else:
+      return relativePath
+  else:
+    return normalizedAbsolute
+
 proc showToolCall(name: string, args: JsonNode) =
   stdout.write(ansiStyleCode(styleDim) & "[tool] " & ansiResetCode)
   stdout.write(ansiBackgroundColorCode(c256DarkGray) & " " & name & " " & ansiResetCode)
   if args.len > 0:
     stdout.write(ansiStyleCode(styleDim) & "  ")
     for key, val in args.pairs:
-      stdout.write(key & "=" & val.getStr(val.pretty) & " ")
+      if key == "path":
+        let displayPath = normalizePathForDisplay(val.getStr())
+        stdout.write(key & "=" & displayPath & " ")
+      else:
+        stdout.write(key & "=" & val.getStr(val.pretty) & " ")
     stdout.write(ansiResetCode)
   stdout.write("\n")
   stdout.flushFile()
 
 proc showContext() =
-  let contextLimit = model.contextWindow
-  const barWidth = 30
+  let
+    contextLimit = model.contextWindow
+    barWidth = 30
   if lastUsage.isNone():
     echo ""
     styledEcho("  No context data yet.")
@@ -250,7 +271,6 @@ proc runAgent() =
 
     let input = noise.getLine()
 
-    # Handle /model with optional argument before generic slash parsing
     if input == "/model" or input.startsWith("/model "):
       let arg = if input.len > 7: input[7..^1].strip() else: ""
       if arg == "":
@@ -296,7 +316,6 @@ proc runAgent() =
         res = sendReq()
       case res.kind
       of ok:
-        # This is "safe" enough as we always get choices len 1 back
         var choice = res.response.choices[0]
         lastUsage = some(res.response.usage)
         messages.add(choice.message)
@@ -311,10 +330,7 @@ proc runAgent() =
         of length:
           echo "Hit length condition, printing anyway:"
           echo choice.message.content.get().renderMarkdown()
-          # TODO: Probably compact instead, right?
         of toolCalls:
-          # Inner tool calling loop time
-          # TODO: Eventually this should scatter-gather parallel calls
           var iterationCount = 0
           while true:
             inc iterationCount
@@ -361,7 +377,6 @@ proc runAgent() =
                   messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected execution"))
             let res = sendReq()
             if res.kind == err:
-              # Drop messages that caused the error
               messages.setLen(currentLen)
               styledEcho(fgRed, "Error returned: ")
               echo res.error.error.message
@@ -375,14 +390,13 @@ proc runAgent() =
               of stop:
                 printSeparator()
                 echo choice.message.content.get().renderMarkdown() & "\n"
-                break # inner loop
+                break
               of toolCalls:
                 continue
               else:
                 echo "Unexpected finish reason: " & $choice.finishReason
                 break
       of err:
-        # Drop messages that caused the error
         messages.setLen(currentLen)
         styledEcho(fgRed, "Error returned: ")
         echo res.error.error.message

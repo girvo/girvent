@@ -77,6 +77,10 @@ let
           "cmd": {
             "type": "string",
             "description": "The bash command to execute"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout in seconds. Default 120. Set to 0 for no timeout (use for long-running commands like builds)."
           }
         },
         "required": ["cmd"]
@@ -137,13 +141,39 @@ proc callWriteFile*(path: string, content: string): string =
 
 const maxOutputLines = 200
 
-proc callExecBash*(cmd: string): string =
+proc truncateOutput(output: string): (string, string) =
+  let lines = output.splitLines()
+  let truncated = lines.len > maxOutputLines
+  let body = lines[0 ..< min(maxOutputLines, lines.len)].join("\n")
+  let suffix = if truncated: "\n… (" & $(lines.len - maxOutputLines) & " more lines truncated)" else: ""
+  (body, suffix)
+
+proc callExecBash*(cmd: string, timeout: int = 120): string =
+  let tmpPath = getTempDir() / "girvent_" & $getCurrentProcessId() & ".out"
+  defer:
+    try: removeFile(tmpPath)
+    except: discard
   try:
-    let (output, exitCode) = execCmdEx(bashPath & " -c " & quoteShell(cmd))
-    let lines = output.splitLines()
-    let truncated = lines.len > maxOutputLines
-    let body = lines[0 ..< min(maxOutputLines, lines.len)].join("\n")
-    let suffix = if truncated: "\n… (" & $(lines.len - maxOutputLines) & " more lines truncated)" else: ""
+    # Redirect output to temp file to avoid pipe buffer deadlock with timeout
+    let fullCmd = "(" & cmd & ") > " & quoteShell(tmpPath) & " 2>&1"
+    let process = startProcess(bashPath, args = ["-c", fullCmd])
+    let timeoutMs = if timeout <= 0: -1 else: timeout * 1000
+    let exitCode = waitForExit(process, timeoutMs)
+
+    if exitCode == -1:
+      # Timed out — kill and return partial output
+      kill(process)
+      discard waitForExit(process)
+      close(process)
+      var partial = ""
+      try: partial = readFile(tmpPath)
+      except: discard
+      let (body, _) = truncateOutput(partial)
+      return "error: command timed out after " & $timeout & "s\n" & body
+
+    close(process)
+    let output = readFile(tmpPath)
+    let (body, suffix) = truncateOutput(output)
     if exitCode != 0:
       return "exit code " & $exitCode & ":\n" & body & suffix
     return body & suffix

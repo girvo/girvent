@@ -14,10 +14,21 @@ import ./md_ansi
 # We need to load the .env file first
 load()
 
+type
+  Model = object
+    id: string
+    contextWindow: int
+
+const
+  Qwen_3_5 = Model(id: "qwen3.5-plus",  contextWindow: 1_000_000)
+  GLM_5    = Model(id: "glm-5",           contextWindow: 200_000)
+  KimiK_2_5  = Model(id: "kimi-k2.5",      contextWindow: 256_000)
+  MiniMaxM_2_5 = Model(id: "MiniMax-M2.5",  contextWindow: 205_000)
+  AllModels = [Qwen_3_5, GLM_5, KimiK_2_5, MiniMaxM_2_5]
+
 let
   apiUrl = "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions"
   apiKey = getEnv("API_KEY", "")
-  modelId = "qwen3.5-plus"
   systemPrompt = initMessage(Role.system, """
 You are an expert software engineering assistant.
 
@@ -39,7 +50,8 @@ TOOLS:
 - read_file(path): Read a file's contents. Always read before writing.
 - write_file(path, content): Write a file. Never overwrite without reading first.
 - list_directory(path): List directory contents. Use to explore project structure.
-- exec_bash(cmd): Run a shell command. Use for building, testing, and tasks that read_file/write_file can't handle.
+- exec_bash(cmd, timeout?): Run a shell command. Use for building, testing, and tasks that read_file/write_file can't handle.
+  - Commands time out after 120s by default. Pass timeout=0 for long-running commands (builds, installs), or a custom value in seconds.
   - Prefer read-only and reversible operations; confirm with the user before executing anything destructive
   - Use dry-run flags when available
   - Check exit codes and output after each command
@@ -76,13 +88,55 @@ if apiKey == "":
   raise newException(OSError, "Must set API_KEY in .env file")
 
 var
+  model = Qwen_3_5
   messages = newSeq[Message]()
+  lastUsage: Option[Usage]
   client = newHttpClient()
 client.headers = newHttpHeaders({
   "Accept": "application/json",
   "Content-Type": "application/json",
   "Authorization": "Bearer " & apiKey
 })
+
+type
+  SlashCommand = enum
+    scClear, scContext, scHelp, scModel, scQuit
+
+proc `$`(cmd: SlashCommand): string =
+  case cmd
+  of scClear:   "/clear"
+  of scContext:  "/context"
+  of scHelp:    "/help"
+  of scModel:   "/model"
+  of scQuit:    "/quit"
+
+proc cmdDescription(cmd: SlashCommand): string =
+  case cmd
+  of scClear:   "clear conversation history"
+  of scContext:  "show context window usage"
+  of scHelp:    "show this help"
+  of scModel:   "show or switch model"
+  of scQuit:    "exit"
+
+proc parseSlashCommand(s: string): Option[SlashCommand] =
+  for cmd in SlashCommand:
+    if $cmd == s:
+      return some(cmd)
+
+proc slashCompletionHook(noise: var Noise, text: string): int =
+  let line = noise.getLine()
+  if line.len > 0 and line[0] == '/':
+    if line.startsWith("/model "):
+      # text is just the current word (model name partial)
+      for m in AllModels:
+        if m.id.startsWith(text):
+          noise.addCompletion(m.id)
+    else:
+      for cmd in SlashCommand:
+        let s = $cmd
+        if s.startsWith(text):
+          noise.addCompletion(s)
+  result = 0
 
 proc printSeparator() =
   let width = terminalWidth()
@@ -99,10 +153,58 @@ proc showToolCall(name: string, args: JsonNode) =
   stdout.write("\n")
   stdout.flushFile()
 
+proc showContext() =
+  let contextLimit = model.contextWindow
+  const barWidth = 30
+  if lastUsage.isNone():
+    echo ""
+    styledEcho("  No context data yet.")
+    echo ""
+    return
+  let u = lastUsage.get()
+  let prompt = insertSep($u.promptTokens, ',')
+  let completion = insertSep($u.completionTokens, ',')
+  let total = insertSep($u.totalTokens, ',')
+  let limit = insertSep($contextLimit, ',')
+  let w = max(prompt.len, max(completion.len, max(total.len, limit.len)))
+  let filled = barWidth * u.totalTokens div contextLimit
+  let bar = "█".repeat(filled) & "░".repeat(barWidth - filled)
+  let pct = u.totalTokens * 100 div contextLimit
+  echo ""
+  styledEcho("  ", styleBright, "context")
+  echo ""
+  styledEcho("  ", fgCyan, "prompt      ", resetStyle, prompt.align(w), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgYellow, "completion  ", resetStyle, completion.align(w), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgBlack, styleBright, "            " & "─".repeat(w + 7))
+  styledEcho("  ", styleBright, "total       ", resetStyle, total.align(w), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgBlack, styleBright, "limit       ", resetStyle, limit.align(w), fgBlack, styleBright, " tokens")
+  echo ""
+  styledEcho("  ", fgCyan, bar, resetStyle, "  ", $pct & "%")
+  echo ""
+
+proc showModels() =
+  echo ""
+  styledEcho("  ", styleBright, "models")
+  echo ""
+  for m in AllModels:
+    if m.id == model.id:
+      styledEcho("  ", fgCyan, styleBright, "● ", resetStyle, styleBright, m.id)
+    else:
+      styledEcho("    ", m.id)
+  echo ""
+
+proc showHelp() =
+  echo ""
+  styledEcho("  ", styleBright, "commands", fgBlack, styleBright, "  ·  ", resetStyle, fgBlack, styleDim, "Tab completes slash commands")
+  echo ""
+  for cmd in SlashCommand:
+    styledEcho("  ", fgCyan, ($cmd).alignLeft(11), resetStyle, cmdDescription(cmd))
+  echo ""
+
 proc sendReq(): ChatResponse =
   var rawBody = ""
   try:
-    let body = initRequestBody(modelId, messages, some(tools.allTools))
+    let body = initRequestBody(model.id, messages, some(tools.allTools))
     let response = client.request(apiUrl, httpMethod = HttpPost, body = body.toJson())
     rawBody = response.body
     if response.status != "200 OK":
@@ -119,22 +221,60 @@ proc runAgent() =
   var noise = Noise.init()
   let prompt = Styler.init(fgGreen, "> ")
   noise.setPrompt(prompt)
+  noise.setCompletionHook(slashCompletionHook)
 
   messages.add(systemPrompt)
+
+  echo ""
+  styledEcho("  ", styleBright, "Coding Agent", resetStyle, fgBlack, styleBright, "  ·  ", resetStyle, model.id)
+  echo ""
+  styledEcho(fgBlack, styleBright, "  Type your prompt to get started. Type ", resetStyle, "/help", fgBlack, styleBright, " for available commands.")
+  echo ""
 
   while true:
     let read = noise.readLine()
     if not read: break
 
     let input = noise.getLine()
-    if input == "/quit":
-      echo "Goodbye"
-      break
-    if input == "/clear":
-      stdout.eraseScreen()
-      stdout.setCursorPos(0, 0)
-      messages.reset()
-      messages.add(systemPrompt)
+
+    # Handle /model with optional argument before generic slash parsing
+    if input == "/model" or input.startsWith("/model "):
+      let arg = if input.len > 7: input[7..^1].strip() else: ""
+      if arg == "":
+        showModels()
+      else:
+        var found = false
+        for m in AllModels:
+          if m.id == arg:
+            model = m
+            found = true
+            echo ""
+            styledEcho("  ", fgGreen, "Switched to ", styleBright, m.id)
+            echo ""
+            break
+        if not found:
+          echo ""
+          styledEcho("  ", fgRed, "Unknown model: ", resetStyle, arg)
+          echo ""
+      continue
+
+    let slashCmd = parseSlashCommand(input)
+    if slashCmd.isSome:
+      case slashCmd.get()
+      of scClear:
+        stdout.eraseScreen()
+        stdout.setCursorPos(0, 0)
+        messages.reset()
+        messages.add(systemPrompt)
+      of scContext:
+        showContext()
+      of scHelp:
+        showHelp()
+      of scModel:
+        showModels()
+      of scQuit:
+        echo "Goodbye"
+        break
     else:
       messages.add(initMessage(Role.user, input))
       styledEcho("\n", fgBlack, "Thinking...\n")
@@ -145,6 +285,7 @@ proc runAgent() =
       of ok:
         # This is "safe" enough as we always get choices len 1 back
         var choice = res.response.choices[0]
+        lastUsage = some(res.response.usage)
         messages.add(choice.message)
 
         case choice.finishReason
@@ -196,9 +337,10 @@ proc runAgent() =
                   messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
               of ToolName.execBash:
                 let cmd = args["cmd"].getStr()
+                let timeout = if args.hasKey("timeout"): args["timeout"].getInt() else: 120
                 showToolCall($toolCall.function.name, newJObject())
                 if promptExecBash(cmd):
-                  messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd)))
+                  messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd, timeout)))
                 else:
                   messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected execution"))
             let res = sendReq()
@@ -210,6 +352,7 @@ proc runAgent() =
               break
             else:
               choice = res.response.choices[0]
+              lastUsage = some(res.response.usage)
               messages.add(choice.message)
 
               case choice.finishReason

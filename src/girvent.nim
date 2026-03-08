@@ -161,15 +161,16 @@ proc showContext() =
     styledEcho("  No context data yet.")
     echo ""
     return
-  let u = lastUsage.get()
-  let prompt = insertSep($u.promptTokens, ',')
-  let completion = insertSep($u.completionTokens, ',')
-  let total = insertSep($u.totalTokens, ',')
-  let limit = insertSep($contextLimit, ',')
-  let w = max(prompt.len, max(completion.len, max(total.len, limit.len)))
-  let filled = barWidth * u.totalTokens div contextLimit
-  let bar = "█".repeat(filled) & "░".repeat(barWidth - filled)
-  let pct = u.totalTokens * 100 div contextLimit
+  let
+    usage = lastUsage.get()
+    prompt = insertSep($usage.promptTokens, ',')
+    completion = insertSep($usage.completionTokens, ',')
+    total = insertSep($usage.totalTokens, ',')
+    limit = insertSep($contextLimit, ',')
+    w = max(prompt.len, max(completion.len, max(total.len, limit.len)))
+    filled = barWidth * usage.totalTokens div contextLimit
+    bar = "█".repeat(filled) & "░".repeat(barWidth - filled)
+    pct = usage.totalTokens * 100 div contextLimit
   echo ""
   styledEcho("  ", styleBright, "context")
   echo ""
@@ -204,8 +205,9 @@ proc showHelp() =
 proc sendReq(): ChatResponse =
   var rawBody = ""
   try:
-    let body = initRequestBody(model.id, messages, some(tools.allTools))
-    let response = client.request(apiUrl, httpMethod = HttpPost, body = body.toJson())
+    let
+      body = initRequestBody(model.id, messages, some(tools.allTools))
+      response = client.request(apiUrl, httpMethod = HttpPost, body = body.toJson())
     rawBody = response.body
     if response.status != "200 OK":
       let error = rawBody.fromJson(ChatErrorResponse)
@@ -228,7 +230,7 @@ proc runAgent() =
   echo ""
   styledEcho("  ", styleBright, "Coding Agent", resetStyle, fgBlack, styleBright, "  ·  ", resetStyle, model.id)
   echo ""
-  styledEcho(fgBlack, styleBright, "  Type your prompt to get started. Type ", resetStyle, "/help", fgBlack, styleBright, " for available commands.")
+  styledEcho(fgBlack, styleBright, "  Type your prompt to get started. Type ", "/help", fgBlack, styleBright, " for available commands.")
   echo ""
 
   while true:
@@ -310,7 +312,9 @@ proc runAgent() =
               messages.setLen(currentLen)
               break
             if choice.message.content.isSome():
+              echo ""
               echo choice.message.content.get().renderMarkdown()
+              echo ""
             for toolCall in choice.message.toolCalls.get():
               let args = parseJson(toolCall.function.arguments)
 
@@ -336,8 +340,9 @@ proc runAgent() =
                 else:
                   messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
               of ToolName.execBash:
-                let cmd = args["cmd"].getStr()
-                let timeout = if args.hasKey("timeout"): args["timeout"].getInt() else: 120
+                let
+                  cmd = args["cmd"].getStr()
+                  timeout = if args.hasKey("timeout"): args["timeout"].getInt() else: 120
                 showToolCall($toolCall.function.name, newJObject())
                 if promptExecBash(cmd):
                   messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd, timeout)))

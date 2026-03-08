@@ -42,7 +42,7 @@ proc showToolCall(name: string, args: JsonNode) =
   if args.len > 0:
     stdout.write(ansiStyleCode(styleDim) & "  ")
     for key, val in args.pairs:
-      stdout.write(key & "=" & val.getStr(val.pretty))
+      stdout.write(key & "=" & val.getStr(val.pretty) & " ")
     stdout.write(ansiResetCode)
   stdout.write("\n")
   stdout.flushFile()
@@ -120,15 +120,35 @@ proc runAgent() =
               echo choice.message.content.get().renderMarkdown()
             for toolCall in choice.message.toolCalls.get():
               let args = parseJson(toolCall.function.arguments)
-              showToolCall($toolCall.function.name, args)
 
               case toolCall.function.name
-              of readFile:
-                let fileContents = readFile(args["path"].getStr())
-                messages.add(initToolCallMessage(toolCall.id, fileContents))
-              of listDirectory:
+              of ToolName.readFile:
+                showToolCall($toolCall.function.name, args)
+                try:
+                  let fileContents = readFile(args["path"].getStr())
+                  messages.add(initToolCallMessage(toolCall.id, fileContents))
+                except IOError:
+                  messages.add(initToolCallMessage(toolCall.id, "ERROR! Could not read file: " & getCurrentExceptionMsg()))
+              of ToolName.listDirectory:
+                showToolCall($toolCall.function.name, args)
                 let folderContents = callListDirectory(args["path"].getStr())
                 messages.add(initToolCallMessage(toolCall.id, folderContents))
+              of ToolName.writeFile:
+                let
+                  path = args["path"].getStr()
+                  content = args["content"].getStr()
+                showToolCall($toolCall.function.name, %*{"path": path})
+                if promptWriteFile(path, content):
+                  messages.add(initToolCallMessage(toolCall.id, callWriteFile(path, content)))
+                else:
+                  messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
+              of ToolName.execBash:
+                let cmd = args["cmd"].getStr()
+                showToolCall($toolCall.function.name, %*{"cmd": cmd})
+                if promptExecBash(cmd):
+                  messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd)))
+                else:
+                  messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected execution"))
             let res = sendReq()
             if res.kind == err:
               # Drop messages that caused the error

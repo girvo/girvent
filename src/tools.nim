@@ -1,7 +1,14 @@
 import std/json
+import std/terminal
 import std/os
+import std/strutils
+import std/osproc
 import openai
+import noise
 
+let bashPath = findExe("bash")
+if bashPath == "":
+  raise newException(OSError, "bash not found in PATH")
 
 let
   readFile = ToolDefinition(
@@ -38,17 +45,109 @@ let
       }
     )
   )
+  writeFile = ToolDefinition(
+    `type`: "function",
+    function: ToolDefinitionFunction(
+      name: ToolName.writeFile,
+      description: "Writes to a file at a path with the given content",
+      parameters: %*{
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The absolute or relative path to the file to write"
+          },
+          "content": {
+            "type": "string",
+            "description": "The full file contents to write to the filesystem"
+          }
+        },
+        "required": ["path", "content"]
+      }
+    )
+  )
+  execBash = ToolDefinition(
+    `type`: "function",
+    function: ToolDefinitionFunction(
+      name: ToolName.execBash,
+      description: "Executes a bash command (with 'bash -c <your command>') and returns stdout and stderr",
+      parameters: %*{
+        "type": "object",
+        "properties": {
+          "cmd": {
+            "type": "string",
+            "description": "The bash command to execute"
+          }
+        },
+        "required": ["cmd"]
+      }
+    )
+  )
 
-var allTools* = @[readFile, listDirectory]
+var allTools* = @[readFile, listDirectory, writeFile, execBash]
 
 proc callListDirectory*(path: string): string =
   var res = ""
-  for kind, path in walkDir(path, relative=true):
-    if kind == pcFile:
-      res.add(path & "\n")
-    if kind == pcDir:
-      res.add(path & "/\n")
+  try:
+    for kind, entry in walkDir(path, relative=not path.isAbsolute):
+      if kind == pcFile:
+        res.add(entry & "\n")
+      if kind == pcDir:
+        res.add(entry & "/\n")
+  except OSError as e:
+    return "error: " & e.msg
+  if res == "": return "empty directory"
   return res
 
+const previewLines = 16
+
+proc confirmPrompt(label: string): bool =
+  var noise = Noise.init()
+  noise.setPrompt(Styler.init(fgYellow, "  " & label & " [Y/n] "))
+  if not noise.readLine(): return false
+  return noise.getLine() in ["", "y", "Y"]
+
+proc promptWriteFile*(path: string, content: string): bool =
+  let fullPath = if path.isAbsolute: path else: getCurrentDir() / path
+  styledEcho(fgBlack, styleBright, "  → ", resetStyle, fullPath)
+  echo ""
+  let lines = content.splitLines()
+  let preview = lines[0 ..< min(previewLines, lines.len)].join("\n")
+  let truncated = lines.len > previewLines
+  stdout.write(ansiStyleCode(styleDim) & preview)
+  if truncated:
+    stdout.write("\n  … (" & $(lines.len - previewLines) & " more lines)")
+  stdout.write(ansiResetCode & "\n")
+  echo ""
+  return confirmPrompt("accept write?")
+
+proc promptExecBash*(cmd: string): bool =
+  echo ""
+  styledEcho(ansiStyleCode(styleDim) & "  $ " & cmd & ansiResetCode)
+  echo ""
+  return confirmPrompt("execute?")
+
+proc callWriteFile*(path: string, content: string): string =
+  try:
+    writeFile(path, content)
+    return "written"
+  except IOError as e:
+    return "error: " & e.msg
+
+const maxOutputLines = 200
+
+proc callExecBash*(cmd: string): string =
+  try:
+    let (output, exitCode) = execCmdEx(bashPath & " -c " & quoteShell(cmd))
+    let lines = output.splitLines()
+    let truncated = lines.len > maxOutputLines
+    let body = lines[0 ..< min(maxOutputLines, lines.len)].join("\n")
+    let suffix = if truncated: "\n… (" & $(lines.len - maxOutputLines) & " more lines truncated)" else: ""
+    if exitCode != 0:
+      return "exit code " & $exitCode & ":\n" & body & suffix
+    return body & suffix
+  except OSError as e:
+    return "error: " & e.msg
+
 when isMainModule:
-  callListDirectory(".")
+  discard promptWriteFile(".", "my cool content")

@@ -18,9 +18,11 @@ type
     contentFilter = "content_filter"
 
   # Tool handling
-  ToolName* = enum
+  ToolName* {.pure.} = enum
     readFile = "read_file",
     listDirectory = "list_directory"
+    writeFile = "write_file"
+    execBash = "exec_bash"
   ToolDefinitionFunction* = object
     name*: ToolName
     description*: string

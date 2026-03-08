@@ -1,36 +1,60 @@
-# Custom coding agent
+# Girvent
 
-Rough arch in psuedocode:
+A minimal coding agent harness in Nim.
 
+## Requirements
+
+- Nim >= 2.2.8
+- [Nimble](https://github.com/nim-lang/nimble)
+
+## Setup
+
+1. Install dependencies:
+   ```bash
+   nimble install
+   ```
+
+2. Create a `.env` file with your ([Alibaba Model Studio Coding Plan](https://www.alibabacloud.com/en/campaign/ai-scene-coding?_p_lc=1)) API key:
+   ```bash
+   API_KEY=your_api_key_here
+   ```
+   (or put it in your `.bashrc` etc via `export GIRVENT_API_KEY=sk-etc..`)
+
+## Build
+
+```bash
+nimble build
 ```
-messages = [system_prompt]
 
-loop:
-    input = read_user_input()
-    if input is quit command: break
-    
-    append { role: "user", content: input } to messages
-    
-    # inner agent loop - keeps going until model is done
-    loop:
-        response = call_api(messages, tool_definitions)
-        
-        if response is error:
-            print error
-            # pop the last user message so history stays clean
-            break to outer loop
-        
-        message = response.choices[0].message
-        append message to messages  # always append, whether text or tool_calls
-        
-        if message.finish_reason is "stop":
-            print message.content
-            break to outer loop
-        
-        if message.finish_reason is "tool_calls":
-            for each tool_call in message.tool_calls:
-                result = execute_tool(tool_call.function.name, tool_call.function.arguments)
-                append { role: "tool", tool_call_id: tool_call.id, content: result } to messages
-            
-            continue inner loop  # let model see the results
+## Install
+
+```bash
+ln -s $PWD/girvent /usr/local/bin/girvent
 ```
+(or similar, up to you but if you want to use it outside of where you built it, this is needed)
+
+## Usage
+
+Run the agent:
+
+```bash
+./girvent
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/clear` | Clear conversation history |
+| `/context` | Show token usage |
+| `/model` | Show or switch model |
+| `/quit` | Exit |
+
+### Tools
+
+The agent has access to:
+- `read_file` - Read file contents
+- `write_file` - Write to a file
+- `list_directory` - List directory contents
+- `exec_bash` - Run shell commands

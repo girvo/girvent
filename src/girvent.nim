@@ -11,8 +11,12 @@ import ./openai
 import ./tools
 import ./md_ansi
 
-# We need to load the .env file first
-load()
+var apiKey = getEnv("GIRVENT_API_KEY", "")
+if apiKey == "":
+  load() # load .env file
+  apiKey = getEnv("GIRVENT_API_KEY", "")
+if apiKey == "":
+  raise newException(OSError, "Must set API_KEY in .env file or environment")
 
 type
   Model = object
@@ -26,9 +30,9 @@ const
   MiniMaxM_2_5 = Model(id: "MiniMax-M2.5",  contextWindow: 205_000)
   AllModels = [Qwen_3_5, GLM_5, KimiK_2_5, MiniMaxM_2_5]
 
+let apiUrl = "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions"
+
 let
-  apiUrl = "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions"
-  apiKey = getEnv("API_KEY", "")
   systemPrompt = initMessage(Role.system, """
 You are an expert software engineering assistant.
 
@@ -84,9 +88,6 @@ COMMUNICATION:
 - For multi-step tasks, summarize what was accomplished at the end
 """)
 
-if apiKey == "":
-  raise newException(OSError, "Must set API_KEY in .env file")
-
 var
   model = Qwen_3_5
   messages = newSeq[Message]()
@@ -118,9 +119,9 @@ proc cmdDescription(cmd: SlashCommand): string =
   of scModel:   "show or switch model"
   of scQuit:    "exit"
 
-proc parseSlashCommand(s: string): Option[SlashCommand] =
+proc parseSlashCommand(input: string): Option[SlashCommand] =
   for cmd in SlashCommand:
-    if $cmd == s:
+    if $cmd == input:
       return some(cmd)
 
 proc slashCompletionHook(noise: var Noise, text: string): int =
@@ -128,14 +129,14 @@ proc slashCompletionHook(noise: var Noise, text: string): int =
   if line.len > 0 and line[0] == '/':
     if line.startsWith("/model "):
       # text is just the current word (model name partial)
-      for m in AllModels:
-        if m.id.startsWith(text):
-          noise.addCompletion(m.id)
+      for mdl in AllModels:
+        if mdl.id.startsWith(text):
+          noise.addCompletion(mdl.id)
     else:
       for cmd in SlashCommand:
-        let s = $cmd
-        if s.startsWith(text):
-          noise.addCompletion(s)
+        let cmdStr = $cmd
+        if cmdStr.startsWith(text):
+          noise.addCompletion(cmdStr)
   result = 0
 
 proc printSeparator() =
@@ -167,18 +168,18 @@ proc showContext() =
     completion = insertSep($usage.completionTokens, ',')
     total = insertSep($usage.totalTokens, ',')
     limit = insertSep($contextLimit, ',')
-    w = max(prompt.len, max(completion.len, max(total.len, limit.len)))
+    colWidth = max(prompt.len, max(completion.len, max(total.len, limit.len)))
     filled = barWidth * usage.totalTokens div contextLimit
     bar = "█".repeat(filled) & "░".repeat(barWidth - filled)
     pct = usage.totalTokens * 100 div contextLimit
   echo ""
   styledEcho("  ", styleBright, "context")
   echo ""
-  styledEcho("  ", fgCyan, "prompt      ", resetStyle, prompt.align(w), fgBlack, styleBright, " tokens")
-  styledEcho("  ", fgYellow, "completion  ", resetStyle, completion.align(w), fgBlack, styleBright, " tokens")
-  styledEcho("  ", fgBlack, styleBright, "            " & "─".repeat(w + 7))
-  styledEcho("  ", styleBright, "total       ", resetStyle, total.align(w), fgBlack, styleBright, " tokens")
-  styledEcho("  ", fgBlack, styleBright, "limit       ", resetStyle, limit.align(w), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgCyan, "prompt      ", resetStyle, prompt.align(colWidth), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgYellow, "completion  ", resetStyle, completion.align(colWidth), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgBlack, styleBright, "            " & "─".repeat(colWidth + 7))
+  styledEcho("  ", styleBright, "total       ", resetStyle, total.align(colWidth), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgBlack, styleBright, "limit       ", resetStyle, limit.align(colWidth), fgBlack, styleBright, " tokens")
   echo ""
   styledEcho("  ", fgCyan, bar, resetStyle, "  ", $pct & "%")
   echo ""
@@ -187,11 +188,11 @@ proc showModels() =
   echo ""
   styledEcho("  ", styleBright, "models")
   echo ""
-  for m in AllModels:
-    if m.id == model.id:
-      styledEcho("  ", fgCyan, styleBright, "● ", resetStyle, styleBright, m.id)
+  for mdl in AllModels:
+    if mdl.id == model.id:
+      styledEcho("  ", fgCyan, styleBright, "● ", resetStyle, styleBright, mdl.id)
     else:
-      styledEcho("    ", m.id)
+      styledEcho("    ", mdl.id)
   echo ""
 
 proc showHelp() =
@@ -246,12 +247,12 @@ proc runAgent() =
         showModels()
       else:
         var found = false
-        for m in AllModels:
-          if m.id == arg:
-            model = m
+        for mdl in AllModels:
+          if mdl.id == arg:
+            model = mdl
             found = true
             echo ""
-            styledEcho("  ", fgGreen, "Switched to ", styleBright, m.id)
+            styledEcho("  ", fgGreen, "Switched to ", styleBright, mdl.id)
             echo ""
             break
         if not found:
@@ -311,7 +312,7 @@ proc runAgent() =
               styledEcho(fgRed, "Loop error: too many iterations " & $iterationCount)
               messages.setLen(currentLen)
               break
-            if choice.message.content.isSome():
+            if choice.message.content.isSome() and choice.message.content.get().strip().len > 0:
               echo ""
               echo choice.message.content.get().renderMarkdown()
               echo ""

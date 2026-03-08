@@ -98,8 +98,8 @@ proc callListDirectory*(path: string): string =
         res.add(entry & "\n")
       if kind == pcDir:
         res.add(entry & "/\n")
-  except OSError as e:
-    return "error: " & e.msg
+  except OSError as err:
+    return "error: " & err.msg
   if res == "": return "empty directory"
   return res
 
@@ -136,8 +136,8 @@ proc callWriteFile*(path: string, content: string): string =
   try:
     writeFile(path, content)
     return "written"
-  except IOError as e:
-    return "error: " & e.msg
+  except IOError as err:
+    return "error: " & err.msg
 
 const maxOutputLines = 200
 
@@ -177,8 +177,8 @@ proc callExecBash*(cmd: string, timeout: int = 120): string =
     if exitCode != 0:
       return "exit code " & $exitCode & ":\n" & body & suffix
     return body & suffix
-  except OSError as e:
-    return "error: " & e.msg
+  except OSError as err:
+    return "error: " & err.msg
 
 when isMainModule:
   discard promptWriteFile(".", "my cool content")

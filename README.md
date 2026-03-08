@@ -58,3 +58,7 @@ The agent has access to:
 - `write_file` - Write to a file
 - `list_directory` - List directory contents
 - `exec_bash` - Run shell commands
+
+## AGENTS.md
+
+You can create an optional `AGENTS.md` file in the current working directory to provide the agent with knowledge of CLI tools available on your system. If the file exists, its contents will be appended to the system prompt at startup.

@@ -32,8 +32,8 @@ const
 
 let apiUrl = "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions"
 
-let
-  systemPrompt = initMessage(Role.system, """
+# Build system prompt
+var systemPromptContent = """
 You are an expert software engineering assistant.
 
 Working directory: """ & getCurrentDir() & """
@@ -86,7 +86,15 @@ COMMUNICATION:
 - Warn before making breaking changes
 - Be honest about limitations and uncertainties
 - For multi-step tasks, summarize what was accomplished at the end
-""")
+"""
+
+# Try to read AGENTS.md and append if it exists
+let agentsMdPath = "AGENTS.md"
+if fileExists(agentsMdPath):
+  systemPromptContent.add("\n\nAGENTS.md:\n")
+  systemPromptContent.add(readFile(agentsMdPath))
+
+let systemPrompt = initMessage(Role.system, systemPromptContent)
 
 var
   model = Qwen_3_5
@@ -230,6 +238,8 @@ proc runAgent() =
 
   echo ""
   styledEcho("  ", styleBright, "Coding Agent", resetStyle, fgBlack, styleBright, "  ·  ", resetStyle, model.id)
+  if fileExists(agentsMdPath):
+    styledEcho(fgBlack, styleDim, "  AGENTS.md loaded")
   echo ""
   styledEcho(fgBlack, styleBright, "  Type your prompt to get started. Type ", "/help", fgBlack, styleBright, " for available commands.")
   echo ""

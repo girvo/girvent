@@ -158,12 +158,10 @@ proc normalizePathForDisplay(path: string): string =
     normalizedAbsolute = absolutePath.absolutePath
     normalizedCwd = cwd.absolutePath
 
-  if normalizedAbsolute.startsWith(normalizedCwd):
-    let relativePath = normalizedAbsolute[normalizedCwd.len + 1 ..^ 1]
-    if relativePath == "":
-      return "."
-    else:
-      return relativePath
+  if normalizedAbsolute == normalizedCwd:
+    return "."
+  elif normalizedAbsolute.startsWith(normalizedCwd & "/"):
+    return normalizedAbsolute[normalizedCwd.len + 1 ..^ 1]
   else:
     return normalizedAbsolute
 
@@ -349,7 +347,7 @@ proc runAgent() =
               of ToolName.readFile:
                 showToolCall($toolCall.function.name, args)
                 try:
-                  let fileContents = readFile(args["path"].getStr())
+                  let fileContents = callReadFile(args["path"].getStr())
                   messages.add(initToolCallMessage(toolCall.id, fileContents))
                 except IOError:
                   messages.add(initToolCallMessage(toolCall.id, "ERROR! Could not read file: " & getCurrentExceptionMsg()))

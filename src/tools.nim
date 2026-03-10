@@ -16,7 +16,7 @@ let
     `type`: "function",
     function: ToolDefinitionFunction(
       name: ToolName.readFile,
-      description: "Reads a file on the users filesystem and returns the contents",
+      description: "Reads a file on the users filesystem and returns the contents with line numbers. Line numbers are prefixed for reference only (e.g. '  1| ...') and are not part of the file content.",
       parameters: %*{
         "type": "object",
         "properties": {
@@ -33,7 +33,7 @@ let
     `type`: "function",
     function: ToolDefinitionFunction(
       name: ToolName.listDirectory,
-      description: "Lists the files and subdirectories within a given directory. Directories end with '/'. Only call this on directories, not on files.",
+      description: "Lists the files and subdirectories within a given directory. Each entry is prefixed: f = file, d = directory, s = symlink. Only call this on directories, not on files.",
       parameters: %*{
         "type": "object",
         "properties": {
@@ -91,14 +91,26 @@ let
 
 var allTools* = @[readFile, listDirectory, writeFile, execBash]
 
+proc callReadFile*(path: string): string =
+  let
+    content = readFile(path)
+    lines = content.splitLines()
+    width = ($lines.len).len
+  var res = ""
+  for i, line in lines:
+    res.add(align($(i + 1), width) & "| " & line & "\n")
+  return res
+
 proc callListDirectory*(path: string): string =
   var res = ""
   try:
     for kind, entry in walkDir(path, relative=not path.isAbsolute):
-      if kind == pcFile:
-        res.add(entry & "\n")
-      if kind == pcDir:
-        res.add(entry & "/\n")
+      let (prefix, suffix) = case kind
+        of pcFile: ("f ", "")
+        of pcDir: ("d ", "/")
+        of pcLinkToFile: ("s ", "")
+        of pcLinkToDir: ("s ", "/")
+      res.add(prefix & entry & suffix & "\n")
   except OSError as err:
     return "error: " & err.msg
   if res == "": return "empty directory"

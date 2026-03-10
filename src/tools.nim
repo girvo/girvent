@@ -92,8 +92,12 @@ let
 var allTools* = @[readFile, listDirectory, writeFile, execBash]
 
 proc callReadFile*(path: string): string =
+  let content = readFile(path)
+  # Detect binary: null byte in first 8KB (same heuristic as git)
+  for i in 0 ..< min(8192, content.len):
+    if content[i] == '\0':
+      return "error: '" & path & "' is a binary file, not a text file."
   let
-    content = readFile(path)
     lines = content.splitLines()
     width = ($lines.len).len
   var res = ""
@@ -102,9 +106,11 @@ proc callReadFile*(path: string): string =
   return res
 
 proc callListDirectory*(path: string): string =
+  if fileExists(path):
+    return "error: '" & path & "' is a file, not a directory. Use read_file to read it."
   var res = ""
   try:
-    for kind, entry in walkDir(path, relative=not path.isAbsolute):
+    for kind, entry in walkDir(path, relative=true):
       let (prefix, suffix) = case kind
         of pcFile: ("f ", "")
         of pcDir: ("d ", "/")

@@ -21,13 +21,13 @@ edit_file(path, old_string, new_string)
 
 **System prompt addition**: Tell the model to prefer `edit_file` over `write_file` for modifying existing files, and to include enough surrounding context in `old_string` to ensure a unique match.
 
-## 2. search_files
+## 2. grep
 
 **Purpose**: Regex search across files. The model currently has to `exec_bash` with grep/rg, which works but is undiscoverable and the model often forgets it can do this.
 
 **Tool schema**:
 ```
-search_files(pattern, path?, glob?)
+grep(pattern, path?, glob?)
 ```
 - `pattern`: regex pattern (passed to `rg`)
 - `path`: directory to search in (default: working directory)
@@ -74,7 +74,8 @@ src/lsp.nim         — LSP client: JSON-RPC stdio transport, request/response h
 - Lazy-start the language server on first `lsp` tool call
 - Send `initialize` + `initialized` on startup
 - Keep the server process alive across tool calls within a session
-- `shutdown` + `exit` on agent exit
+- On agent exit: send `shutdown` request, wait for response, send `exit` notification, terminate process
+- Track the server PID so it can be killed if it doesn't exit gracefully
 
 **Language server config**:
 - User specifies the language server command in `AGENTS.md` or a config, e.g.:
@@ -113,7 +114,7 @@ Rename is the most impactful operation. On `rename`:
 ## Implementation order
 
 1. **edit_file** — smallest, highest immediate value, no external deps
-2. **search_files** — small, depends only on `rg` existing
+2. **grep** — small, depends only on `rg` existing
 3. **lsp** — largest, implement incrementally:
    a. JSON-RPC transport + initialize handshake
    b. `definition` + `references` (read-only, safe to test)
@@ -126,6 +127,6 @@ Add to the tool descriptions in the system prompt:
 
 ```
 - edit_file(path, old_string, new_string): Replace a substring in a file. The old_string must match exactly once. Prefer this over write_file for modifications.
-- search_files(pattern, path?, glob?): Search file contents with regex. Use to find symbols, patterns, or text across the codebase.
+- grep(pattern, path?, glob?): Search file contents with regex. Use to find symbols, patterns, or text across the codebase.
 - lsp(operation, file, line, column, new_name?): Language-aware operations via LSP. Use for finding references, going to definitions, and renaming symbols safely across files. Available operations: references, definition, rename.
 ```

@@ -200,19 +200,9 @@ proc homeKeyProc(ctx: var EscapeCtx, c: char32): char32 =
 proc endKeyProc(ctx: var EscapeCtx, c: char32): char32 =
   ctx.thisKey or END_KEY
 
-proc pageUpKeyProc(ctx: var EscapeCtx, c: char32): char32 =
-  ctx.thisKey or PAGE_UP_KEY
-
-proc pageDownKeyProc(ctx: var EscapeCtx, c: char32): char32 =
-  ctx.thisKey or PAGE_DOWN_KEY
-
 # key labeled Backspace
 proc deleteCharProc(ctx: var EscapeCtx, c: char32): char32 =
   ctx.thisKey or ctrlChar('H')
-
-# key labeled Delete
-proc deleteKeyProc(ctx: var EscapeCtx, c: char32): char32 =
-  ctx.thisKey or DELETE_KEY
 
 proc ctrlUpArrowKeyProc(ctx: var EscapeCtx, c: char32): char32 =
   ctx.thisKey or CTRL or UP_ARROW_KEY
@@ -230,131 +220,133 @@ proc escFailureProc(ctx: var EscapeCtx, c: char32): char32 =
   beep()
   result = -1
 
-# Handle ESC [ 1 ; 3 (or 5) <more stuff> escape sequences
-let escLBracket1Semicolon3or5Dispatch = ("ABCD", [
-  upArrowKeyProc.DispatchProc, downArrowKeyProc, rightArrowKeyProc,
-  leftArrowKeyProc, escFailureProc])
+# Kitty keyboard protocol modifier mapping.
+# The modifier value is encoded as: value = 1 + modifiers
+#   shift=1, alt=2, ctrl=4, super=8, hyper=16, meta=32
+proc kittyModToFlags(modifier: char32): char32 =
+  if modifier <= 1: return 0
+  let mods = modifier - 1
+  result = 0
+  if (mods and 2) != 0: result = result or META   # alt
+  if (mods and 4) != 0: result = result or CTRL   # ctrl
 
-# Handle ESC [ 1 ; <more stuff> escape sequences
-proc escLBracket1Semicolon3Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.thisKey = ctx.thisKey or META
-  ctx.doDispatch(c, escLBracket1Semicolon3or5Dispatch)
+# Map a CSI <number> ~ functional key number to internal key constant.
+proc mapFunctionalKey(ctx: var EscapeCtx, number: char32): char32 =
+  case number
+  of 1: ctx.thisKey or HOME_KEY
+  of 3: ctx.thisKey or DELETE_KEY
+  of 4: ctx.thisKey or END_KEY
+  of 5: ctx.thisKey or PAGE_UP_KEY
+  of 6: ctx.thisKey or PAGE_DOWN_KEY
+  of 7: ctx.thisKey or HOME_KEY
+  of 8: ctx.thisKey or END_KEY
+  of 200: PASTE_START_KEY
+  of 201: PASTE_END_KEY
+  else: -1
 
-proc escLBracket1Semicolon5Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.thisKey = ctx.thisKey or CTRL
-  ctx.doDispatch(c, escLBracket1Semicolon3or5Dispatch)
+# Map a CSI letter (A-H) to internal special key constant.
+proc mapSpecialLetter(letter: char32): char32 =
+  case letter
+  of 'A'.char32: UP_ARROW_KEY
+  of 'B'.char32: DOWN_ARROW_KEY
+  of 'C'.char32: RIGHT_ARROW_KEY
+  of 'D'.char32: LEFT_ARROW_KEY
+  of 'H'.char32: HOME_KEY
+  of 'F'.char32: END_KEY
+  else: -1
 
-# Handle ESC [ 1 <more stuff> escape sequences
-proc escLBracket1SemicolonProc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "35", [escLBracket1Semicolon3Proc.DispatchProc,
-  escLBracket1Semicolon5Proc, escFailureProc])
+# Map a Kitty CSI u sequence (or xterm modifyOtherKeys) to internal key.
+proc mapCsiUKey(codepoint: char32, modifier: char32): char32 =
+  let mods = kittyModToFlags(modifier)
+  let isShift = modifier >= 2 and ((modifier - 1) and 1) != 0
 
-# Handle ESC [ <digit> escape sequences
-proc escLBracket0Proc(ctx: var EscapeCtx, c: char32): char32 =
-  ctx.escFailureProc(c)
-
-proc escLBracket13SemicolonProc(ctx: var EscapeCtx, c: char32): char32 =
-  # ESC [ 1 3 ; <modifier> u
-  let modifier = ctx.readChar()
-  if modifier == 0: return 0
-  let final = ctx.readChar()
-  if final == 0: return 0
-  if final == 'u'.char32 and modifier == '2'.char32:
+  # Shift+Enter
+  if codepoint == 13 and isShift:
     return SHIFT_ENTER_KEY
-  return -1
 
-proc escLBracket13Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, ";", [escLBracket13SemicolonProc.DispatchProc, escFailureProc])
+  # Ctrl key combos with ASCII letters → ctrl-char
+  if (mods and CTRL) != 0:
+    if codepoint >= 'a'.ord and codepoint <= 'z'.ord:
+      return char32((mods and (not CTRL)) or ctrlChar(chr(codepoint.int - 32)))
+    if codepoint >= 'A'.ord and codepoint <= 'Z'.ord:
+      return char32((mods and (not CTRL)) or ctrlChar(chr(codepoint.int)))
 
-proc escLBracket1Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "~;3", [homeKeyProc.DispatchProc,
-    escLBracket1SemicolonProc, escLBracket13Proc, escFailureProc])
-
-proc escLBracket2Proc(ctx: var EscapeCtx, c: char32): char32 =
-  let c2 = ctx.readChar()
-  if c2 == 0: return 0
-  case c2
-  of '0'.char32:
-    let c3 = ctx.readChar()
-    if c3 == 0: return 0
-    case c3
-    of '0'.char32:  # ESC [ 2 0 0 ~
-      let c4 = ctx.readChar()
-      if c4 == 0: return 0
-      if c4 == '~'.char32: return PASTE_START_KEY
-    of '1'.char32:  # ESC [ 2 0 1 ~
-      let c4 = ctx.readChar()
-      if c4 == 0: return 0
-      if c4 == '~'.char32: return PASTE_END_KEY
-    else: discard
-    return ctx.escFailureProc(c3)
-  of '7'.char32:  # ESC [ 27 ; <modifier> ; <codepoint> ~ (xterm modifyOtherKeys)
-    let sep1 = ctx.readChar()
-    if sep1 != ';'.char32: return ctx.escFailureProc(sep1)
-    let modifier = ctx.readChar()
-    if modifier == 0: return 0
-    let sep2 = ctx.readChar()
-    if sep2 != ';'.char32: return ctx.escFailureProc(sep2)
-    var codepoint: char32 = 0
-    while true:
-      let ch = ctx.readChar()
-      if ch == 0: return 0
-      if ch == '~'.char32: break
-      if ch >= '0'.char32 and ch <= '9'.char32:
-        codepoint = codepoint * 10 + (ch - '0'.char32)
-      else: return ctx.escFailureProc(ch)
-    if modifier == '2'.char32 and codepoint == 13:  # Shift+Enter
-      return SHIFT_ENTER_KEY
-    return -1
+  # Common keys
+  case codepoint
+  of 13: mods or ctrlChar('M')   # Enter
+  of 9: mods or ctrlChar('I')    # Tab
+  of 27:
+    if mods == 0: ESC_KEY
+    else: mods or ESC_KEY
+  of 127: mods or ctrlChar('H')  # Backspace
   else:
-    return ctx.escFailureProc(c2)
+    if codepoint >= 32 and codepoint < 0x110000:
+      mods or codepoint
+    else: -1
 
-# Handle ESC [ 3 <more stuff> escape sequences
-proc escLBracket3Proc(ctx: var EscapeCtx, c: char32): char32 =
+# Handle ESC [ (CSI) sequences using parameter accumulation.
+# Supports: traditional xterm sequences, Kitty keyboard protocol (CSI u),
+# and xterm modifyOtherKeys (CSI 27;mod;key~).
+proc escLBracketProc(ctx: var EscapeCtx, c: char32): char32 =
   readOrRet()
-  ctx.doDispatch(c, "~", [deleteKeyProc.DispatchProc, escFailureProc])
 
-# Handle ESC [ 4 <more stuff> escape sequences
-proc escLBracket4Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "~", [endKeyProc.DispatchProc, escFailureProc])
+  # Quick dispatch for unparameterized letter-terminated CSI sequences
+  let specialKey = mapSpecialLetter(c)
+  if specialKey >= 0:
+    return ctx.thisKey or specialKey
 
-# Handle ESC [ 5 <more stuff> escape sequences
-proc escLBracket5Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "~", [pageUpKeyProc.DispatchProc, escFailureProc])
+  # Expect a digit to start parameter accumulation
+  if c < '0'.char32 or c > '9'.char32:
+    return -1
 
-# Handle ESC [ 6 <more stuff> escape sequences
-proc escLBracket6Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "~", [pageDownKeyProc.DispatchProc, escFailureProc])
+  # Accumulate semicolon-separated numeric parameters (up to 4)
+  var params: array[4, char32]
+  var paramCount = 1
+  params[0] = c - '0'.char32
 
-# Handle ESC [ 7 <more stuff> escape sequences
-proc escLBracket7Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "~", [homeKeyProc.DispatchProc, escFailureProc])
+  while true:
+    let ch = ctx.readChar()
+    if ch == 0: return 0
 
-# Handle ESC [ 8 <more stuff> escape sequences
-proc escLBracket8Proc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, "~", [endKeyProc.DispatchProc, escFailureProc])
-
-proc escLBracket9Proc(ctx: var EscapeCtx, c: char32): char32 =
-  ctx.escFailureProc(c)
-
-# Handle ESC [ <more stuff> escape sequences
-let escLBracketDispatch = ("ABCDHF0123456789", [
-  upArrowKeyProc.DispatchProc, downArrowKeyProc,
-  rightArrowKeyProc, leftArrowKeyProc, homeKeyProc, endKeyProc,
-  escLBracket0Proc, escLBracket1Proc, escLBracket2Proc,
-  escLBracket3Proc, escLBracket4Proc, escLBracket5Proc,
-  escLBracket6Proc, escLBracket7Proc, escLBracket8Proc,
-  escLBracket9Proc, escFailureProc])
+    if ch >= '0'.char32 and ch <= '9'.char32:
+      params[paramCount - 1] = params[paramCount - 1] * 10 + (ch - '0'.char32)
+    elif ch == ';'.char32:
+      if paramCount >= params.len: return -1
+      inc paramCount
+      params[paramCount - 1] = 0
+    elif ch == 'u'.char32:
+      # Kitty keyboard protocol: CSI <codepoint> [; <modifier>] u
+      let codepoint = params[0]
+      let modifier = if paramCount >= 2: params[1] else: 1.char32
+      return mapCsiUKey(codepoint, modifier)
+    elif ch == '~'.char32:
+      case paramCount
+      of 1:
+        # CSI <number> ~ (traditional functional key)
+        return ctx.mapFunctionalKey(params[0])
+      of 2:
+        # CSI <number> ; <modifier> ~ (modified functional key)
+        let key = ctx.mapFunctionalKey(params[0])
+        if key < 0: return -1
+        let baseKey = key and (not ctx.thisKey)
+        return ctx.thisKey or kittyModToFlags(params[1]) or baseKey
+      of 3:
+        # CSI 27 ; <modifier> ; <codepoint> ~ (xterm modifyOtherKeys)
+        if params[0] == 27:
+          return mapCsiUKey(params[2], params[1])
+        return -1
+      else:
+        return -1
+    else:
+      # Letter terminator for special keys (A, B, C, D, H, F)
+      let key = mapSpecialLetter(ch)
+      if key >= 0:
+        if paramCount >= 2:
+          # CSI 1 ; <modifier> <letter> (modified arrow/home/end)
+          return ctx.thisKey or kittyModToFlags(params[paramCount - 1]) or key
+        else:
+          return ctx.thisKey or key
+      return -1
 
 # Handle ESC O <char> escape sequences
 let escODispatch = ("ABCDHFabcd", [
@@ -362,11 +354,6 @@ let escODispatch = ("ABCDHFabcd", [
   rightArrowKeyProc, leftArrowKeyProc, homeKeyProc,
   endKeyProc, ctrlUpArrowKeyProc, ctrlDownArrowKeyProc,
   ctrlRightArrowKeyProc, ctrlLeftArrowKeyProc, escFailureProc])
-
-# Initial ESC dispatch -- could be a Meta prefix or the start of an escape sequence
-proc escLBracketProc(ctx: var EscapeCtx, c: char32): char32 =
-  readOrRet()
-  ctx.doDispatch(c, escLBracketDispatch)
 
 proc escOProc(ctx: var EscapeCtx, c: char32): char32 =
   readOrRet()

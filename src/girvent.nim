@@ -148,7 +148,7 @@ proc slashCompletionHook(noise: var Noise, text: string): int =
 
 proc printSeparator() =
   let width = terminalWidth()
-  styledEcho(fgBlack, styleBright, "─".repeat(width))
+  styledEcho(ansiForegroundColorCode(c256Gray), "─".repeat(width))
 
 proc normalizePathForDisplay(path: string): string =
   ## Normalize a path for display: show relative if within CWD, absolute otherwise
@@ -204,11 +204,11 @@ proc showContext() =
   echo ""
   styledEcho("  ", styleBright, "context")
   echo ""
-  styledEcho("  ", fgCyan, "prompt      ", resetStyle, prompt.align(colWidth), fgBlack, styleBright, " tokens")
-  styledEcho("  ", fgYellow, "completion  ", resetStyle, completion.align(colWidth), fgBlack, styleBright, " tokens")
-  styledEcho("  ", fgBlack, styleBright, "            " & "─".repeat(colWidth + 7))
-  styledEcho("  ", styleBright, "total       ", resetStyle, total.align(colWidth), fgBlack, styleBright, " tokens")
-  styledEcho("  ", fgBlack, styleBright, "limit       ", resetStyle, limit.align(colWidth), fgBlack, styleBright, " tokens")
+  styledEcho("  ", fgCyan, "prompt      ", resetStyle, prompt.align(colWidth), ansiForegroundColorCode(c256Gray), " tokens")
+  styledEcho("  ", fgYellow, "completion  ", resetStyle, completion.align(colWidth), ansiForegroundColorCode(c256Gray), " tokens")
+  styledEcho("  ", ansiForegroundColorCode(c256Gray), "            " & "─".repeat(colWidth + 7))
+  styledEcho("  ", styleBright, "total       ", resetStyle, total.align(colWidth), ansiForegroundColorCode(c256Gray), " tokens")
+  styledEcho("  ", ansiForegroundColorCode(c256Gray), "limit       ", resetStyle, limit.align(colWidth), ansiForegroundColorCode(c256Gray), " tokens")
   echo ""
   styledEcho("  ", fgCyan, bar, resetStyle, "  ", $pct & "%")
   echo ""
@@ -226,7 +226,7 @@ proc showModels() =
 
 proc showHelp() =
   echo ""
-  styledEcho("  ", styleBright, "commands", fgBlack, styleBright, "  ·  ", resetStyle, fgBlack, styleDim, "Tab completes slash commands")
+  styledEcho("  ", styleBright, "commands", ansiForegroundColorCode(c256Gray), "  ·  ", ansiForegroundColorCode(c256DimGray), "Tab completes slash commands")
   echo ""
   for cmd in SlashCommand:
     styledEcho("  ", fgCyan, ($cmd).alignLeft(11), resetStyle, cmdDescription(cmd))
@@ -258,11 +258,11 @@ proc runAgent() =
   messages.add(systemPrompt)
 
   echo ""
-  styledEcho("  ", styleBright, "Coding Agent", resetStyle, fgBlack, styleBright, "  ·  ", resetStyle, model.id)
+  styledEcho("  ", styleBright, "Coding Agent", resetStyle, ansiForegroundColorCode(c256Gray), "  ·  ", resetStyle, model.id)
   if fileExists(agentsMdPath):
-    styledEcho(fgBlack, styleDim, "  AGENTS.md loaded")
+    styledEcho(ansiForegroundColorCode(c256DimGray), "  AGENTS.md loaded")
   echo ""
-  styledEcho(fgBlack, styleBright, "  Type your prompt to get started. Type ", "/help", fgBlack, styleBright, " for available commands.")
+  styledEcho(ansiForegroundColorCode(c256Gray), "  Type your prompt to get started. Type /help for available commands.")
   echo ""
 
   while true:
@@ -310,7 +310,7 @@ proc runAgent() =
         break
     else:
       messages.add(initMessage(Role.user, input))
-      styledEcho("\n", fgBlack, "Thinking...\n")
+      styledEcho("\n", ansiForegroundColorCode(c256Gray), "Thinking...\n")
       let
         currentLen = messages.len
         res = sendReq()

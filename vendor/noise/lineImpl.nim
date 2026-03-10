@@ -364,10 +364,12 @@ when promptCompletion:
       tail: toPart(endIndex, self.dataLen)
     )
 
-  proc updateCompletion(self: var Line, text: string) =
+  proc updateCompletion(self: var Line, text: string, cursorPos: int = -1) =
     if text.len > 0:
       self.dataLen = text.utf8to32(self.data)
-      if self.pos > self.dataLen:
+      if cursorPos >= 0 and cursorPos <= self.dataLen:
+        self.pos = cursorPos
+      else:
         self.pos = self.dataLen
     else:
       self.pos = 0

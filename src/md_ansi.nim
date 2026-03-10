@@ -7,6 +7,8 @@ import markdown
 type Color256* = enum
   c256SoftOrange = 215
   c256DarkGray   = 237
+  c256DimGray    = 240  # dim gray for very secondary text
+  c256Gray       = 245  # visible gray for secondary text (replaces fgBlack+styleBright)
 
 proc ansiForegroundColorCode*(c: Color256): string = "\e[38;5;" & $ord(c) & "m"
 proc ansiBackgroundColorCode*(c: Color256): string = "\e[48;5;" & $ord(c) & "m"

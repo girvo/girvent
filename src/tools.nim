@@ -5,6 +5,7 @@ import std/strutils
 import std/osproc
 import openai
 import noise
+import md_ansi
 
 let bashPath = findExe("bash")
 if bashPath == "":
@@ -32,7 +33,7 @@ let
     `type`: "function",
     function: ToolDefinitionFunction(
       name: ToolName.listDirectory,
-      description: "Lists the files and subdirectories within a given directory",
+      description: "Lists the files and subdirectories within a given directory. Directories end with '/'. Only call this on directories, not on files.",
       parameters: %*{
         "type": "object",
         "properties": {
@@ -114,7 +115,7 @@ proc confirmPrompt(label: string): bool =
 
 proc promptWriteFile*(path: string, content: string): bool =
   let fullPath = if path.isAbsolute: path else: getCurrentDir() / path
-  styledEcho(fgBlack, styleBright, "  → ", resetStyle, fullPath)
+  styledEcho(ansiForegroundColorCode(c256Gray), "  → ", resetStyle, fullPath)
   echo ""
   let lines = content.splitLines()
   let preview = lines[0 ..< min(previewLines, lines.len)].join("\n")

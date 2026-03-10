@@ -247,6 +247,84 @@ proc sendReq(): ChatResponse =
     let error = initCustomError(getCurrentExceptionMsg() & "\nRaw body: " & rawBody)
     return ChatResponse(kind: err, error: error)
 
+proc handleToolCalls(choice: var Choice): bool =
+  ## This is the inner tool call loop
+  ## Returns true if the conversation should continue, false if an error occurred
+  var iterationCount = 0
+
+  while true:
+    inc iterationCount
+    if iterationCount >= 30:
+      styledEcho(fgRed, "Loop error: too many iterations " & $iterationCount)
+      return false
+
+    # Print any content from the assistant message
+    if choice.message.content.isSome() and choice.message.content.get().strip().len > 0:
+      echo ""
+      echo choice.message.content.get().renderMarkdown()
+      echo ""
+
+    # Execute each tool call
+    for toolCall in choice.message.toolCalls.get():
+      let args = parseJson(toolCall.function.arguments)
+
+      case toolCall.function.name
+      of ToolName.readFile:
+        showToolCall($toolCall.function.name, args)
+        try:
+          let fileContents = callReadFile(args["path"].getStr())
+          messages.add(initToolCallMessage(toolCall.id, fileContents))
+        except IOError:
+          messages.add(initToolCallMessage(toolCall.id, "ERROR! Could not read file: " & getCurrentExceptionMsg()))
+      of ToolName.listDirectory:
+        showToolCall($toolCall.function.name, args)
+        let folderContents = callListDirectory(args["path"].getStr())
+        messages.add(initToolCallMessage(toolCall.id, folderContents))
+      of ToolName.writeFile:
+        let
+          path = args["path"].getStr()
+          content = args["content"].getStr()
+        showToolCall($toolCall.function.name, %*{"path": path})
+        if promptWriteFile(path, content):
+          messages.add(initToolCallMessage(toolCall.id, callWriteFile(path, content)))
+        else:
+          messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
+      of ToolName.execBash:
+        let
+          cmd = args["cmd"].getStr()
+          timeout = if args.hasKey("timeout"): args["timeout"].getInt() else: 120
+        showToolCall($toolCall.function.name, newJObject())
+        if promptExecBash(cmd):
+          messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd, timeout)))
+        else:
+          messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected execution"))
+      else:
+        styledEcho(fgYellow, "Unimplemented tool call detected")
+        messages.add(initToolCallMessage(toolCall.id, "tool is not implemented yet, try bash?"))
+
+    # Send follow-up request after tool results
+    let res = sendReq()
+    if res.kind == err:
+      styledEcho(fgRed, "Error returned: ")
+      echo res.error.error.message
+      return false
+
+    choice = res.response.choices[0]
+    lastUsage = some(res.response.usage)
+    messages.add(choice.message)
+
+    # Check finish reason to determine next action
+    case choice.finishReason
+    of stop:
+      printSeparator()
+      echo choice.message.content.get().renderMarkdown() & "\n"
+      return true
+    of toolCalls:
+      continue
+    else:
+      echo "Unexpected finish reason: " & $choice.finishReason
+      return true
+
 proc runAgent() =
   var noise = Noise.init()
   let prompt = Styler.init(fgGreen, "> ")
@@ -329,74 +407,8 @@ proc runAgent() =
           echo "Hit length condition, printing anyway:"
           echo choice.message.content.get().renderMarkdown()
         of toolCalls:
-          var iterationCount = 0
-          while true:
-            inc iterationCount
-            if iterationCount >= 30:
-              styledEcho(fgRed, "Loop error: too many iterations " & $iterationCount)
-              messages.setLen(currentLen)
-              break
-            if choice.message.content.isSome() and choice.message.content.get().strip().len > 0:
-              echo ""
-              echo choice.message.content.get().renderMarkdown()
-              echo ""
-            for toolCall in choice.message.toolCalls.get():
-              let args = parseJson(toolCall.function.arguments)
-
-              case toolCall.function.name
-              of ToolName.readFile:
-                showToolCall($toolCall.function.name, args)
-                try:
-                  let fileContents = callReadFile(args["path"].getStr())
-                  messages.add(initToolCallMessage(toolCall.id, fileContents))
-                except IOError:
-                  messages.add(initToolCallMessage(toolCall.id, "ERROR! Could not read file: " & getCurrentExceptionMsg()))
-              of ToolName.listDirectory:
-                showToolCall($toolCall.function.name, args)
-                let folderContents = callListDirectory(args["path"].getStr())
-                messages.add(initToolCallMessage(toolCall.id, folderContents))
-              of ToolName.writeFile:
-                let
-                  path = args["path"].getStr()
-                  content = args["content"].getStr()
-                showToolCall($toolCall.function.name, %*{"path": path})
-                if promptWriteFile(path, content):
-                  messages.add(initToolCallMessage(toolCall.id, callWriteFile(path, content)))
-                else:
-                  messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
-              of ToolName.execBash:
-                let
-                  cmd = args["cmd"].getStr()
-                  timeout = if args.hasKey("timeout"): args["timeout"].getInt() else: 120
-                showToolCall($toolCall.function.name, newJObject())
-                if promptExecBash(cmd):
-                  messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd, timeout)))
-                else:
-                  messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected execution"))
-              else:
-                styledEcho(fgYellow, "Unimplemented tool call detected")
-                messages.add(initToolCallMessage(toolCall.id, "tool is not implemented yet, try bash?"))
-            let res = sendReq()
-            if res.kind == err:
-              messages.setLen(currentLen)
-              styledEcho(fgRed, "Error returned: ")
-              echo res.error.error.message
-              break
-            else:
-              choice = res.response.choices[0]
-              lastUsage = some(res.response.usage)
-              messages.add(choice.message)
-
-              case choice.finishReason
-              of stop:
-                printSeparator()
-                echo choice.message.content.get().renderMarkdown() & "\n"
-                break
-              of toolCalls:
-                continue
-              else:
-                echo "Unexpected finish reason: " & $choice.finishReason
-                break
+          if not handleToolCalls(choice):
+            messages.setLen(currentLen)
       of err:
         messages.setLen(currentLen)
         styledEcho(fgRed, "Error returned: ")

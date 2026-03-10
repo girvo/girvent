@@ -375,6 +375,9 @@ proc runAgent() =
                   messages.add(initToolCallMessage(toolCall.id, callExecBash(cmd, timeout)))
                 else:
                   messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected execution"))
+              else:
+                styledEcho(fgYellow, "Unimplemented tool call detected")
+                messages.add(initToolCallMessage(toolCall.id, "tool is not implemented yet, try bash?"))
             let res = sendReq()
             if res.kind == err:
               messages.setLen(currentLen)

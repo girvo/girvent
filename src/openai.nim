@@ -23,6 +23,9 @@ type
     listDirectory = "list_directory"
     writeFile = "write_file"
     execBash = "exec_bash"
+    editFile = "edit_file"
+    grep = "grep"
+    lsp = "lsp"
   ToolDefinitionFunction* = object
     name*: ToolName
     description*: string

@@ -195,9 +195,10 @@ proc promptWriteFile*(path: string, content: string): bool =
   let fullPath = if path.isAbsolute: path else: getCurrentDir() / path
   styledEcho(ansiForegroundColorCode(c256Gray), "  → ", resetStyle, fullPath)
   echo ""
-  let lines = content.splitLines()
-  let preview = lines[0 ..< min(previewLines, lines.len)].join("\n")
-  let truncated = lines.len > previewLines
+  let
+    lines = content.splitLines()
+    preview = lines[0 ..< min(previewLines, lines.len)].join("\n")
+    truncated = lines.len > previewLines
   stdout.write(ansiStyleCode(styleDim) & preview)
   if truncated:
     stdout.write("\n  … (" & $(lines.len - previewLines) & " more lines)")
@@ -215,8 +216,9 @@ proc promptEditFile*(path: string, oldString: string, newString: string): bool =
   let fullPath = if path.isAbsolute: path else: getCurrentDir() / path
   styledEcho(ansiForegroundColorCode(c256Gray), "  → ", resetStyle, fullPath)
   echo ""
-  let oldLines = oldString.splitLines()
-  let newLines = newString.splitLines()
+  let
+    oldLines = oldString.splitLines()
+    newLines = newString.splitLines()
   for line in oldLines:
     styledEcho(fgRed, "  - ", resetStyle, ansiStyleCode(styleDim), line, ansiResetCode)
   for line in newLines:
@@ -226,8 +228,9 @@ proc promptEditFile*(path: string, oldString: string, newString: string): bool =
 
 proc callEditFile*(path: string, oldString: string, newString: string): string =
   try:
-    let content = readFile(path)
-    let count = content.count(oldString)
+    let
+      content = readFile(path)
+      count = content.count(oldString)
     if count == 0:
       return "error: old_string not found in file"
     if count > 1:
@@ -241,10 +244,11 @@ proc callEditFile*(path: string, oldString: string, newString: string): string =
 const maxOutputLines = 200
 
 proc truncateOutput(output: string): (string, string) =
-  let lines = output.splitLines()
-  let truncated = lines.len > maxOutputLines
-  let body = lines[0 ..< min(maxOutputLines, lines.len)].join("\n")
-  let suffix = if truncated: "\n… (" & $(lines.len - maxOutputLines) & " more lines truncated)" else: ""
+  let
+    lines = output.splitLines()
+    truncated = lines.len > maxOutputLines
+    body = lines[0 ..< min(maxOutputLines, lines.len)].join("\n")
+    suffix = if truncated: "\n… (" & $(lines.len - maxOutputLines) & " more lines truncated)" else: ""
   (body, suffix)
 
 proc callGrep*(pattern: string, path: string = ".", glob: string = ""): string =
@@ -252,8 +256,9 @@ proc callGrep*(pattern: string, path: string = ".", glob: string = ""): string =
     return "error: path does not exist: " & path
 
   # Use temp file to avoid pipe buffer deadlock (same pattern as callExecBash)
-  let tmpPath = getTempDir() / "girvent_grep_" & $getCurrentProcessId() & ".out"
-  let errPath = getTempDir() / "girvent_grep_" & $getCurrentProcessId() & "_err.out"
+  let
+    tmpPath = getTempDir() / "girvent_grep_" & $getCurrentProcessId() & ".out"
+    errPath = getTempDir() / "girvent_grep_" & $getCurrentProcessId() & "_err.out"
   defer:
     try: removeFile(tmpPath)
     except: discard
@@ -268,9 +273,10 @@ proc callGrep*(pattern: string, path: string = ".", glob: string = ""): string =
   args.add(path)
 
   try:
-    let fullCmd = rgPath & " " & args.join(" ") & " > " & quoteShell(tmpPath) & " 2> " & quoteShell(errPath)
-    let process = startProcess(bashPath, args = ["-c", fullCmd], options = {poUsePath})
-    let exitCode = waitForExit(process, grepTimeoutMs)
+    let
+      fullCmd = rgPath & " " & args.join(" ") & " > " & quoteShell(tmpPath) & " 2> " & quoteShell(errPath)
+      process = startProcess(bashPath, args = ["-c", fullCmd], options = {poUsePath})
+      exitCode = waitForExit(process, grepTimeoutMs)
 
     if exitCode == -1:
       kill(process)
@@ -318,10 +324,11 @@ proc callExecBash*(cmd: string, timeout: int = 120): string =
     except: discard
   try:
     # Redirect output to temp file to avoid pipe buffer deadlock with timeout
-    let fullCmd = "(" & cmd & ") > " & quoteShell(tmpPath) & " 2>&1"
-    let process = startProcess(bashPath, args = ["-c", fullCmd])
-    let timeoutMs = if timeout <= 0: -1 else: timeout * 1000
-    let exitCode = waitForExit(process, timeoutMs)
+    let
+      fullCmd = "(" & cmd & ") > " & quoteShell(tmpPath) & " 2>&1"
+      process = startProcess(bashPath, args = ["-c", fullCmd])
+      timeoutMs = if timeout <= 0: -1 else: timeout * 1000
+      exitCode = waitForExit(process, timeoutMs)
 
     if exitCode == -1:
       kill(process)
@@ -334,8 +341,9 @@ proc callExecBash*(cmd: string, timeout: int = 120): string =
       return "error: command timed out after " & $timeout & "s\n" & body
 
     close(process)
-    let output = readFile(tmpPath)
-    let (body, suffix) = truncateOutput(output)
+    let
+      output = readFile(tmpPath)
+      (body, suffix) = truncateOutput(output)
     if exitCode != 0:
       return "exit code " & $exitCode & ":\n" & body & suffix
     return body & suffix

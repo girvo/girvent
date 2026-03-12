@@ -6,6 +6,9 @@ A minimal coding agent harness in Nim.
 
 - Nim >= 2.2.8
 - [Nimble](https://github.com/nim-lang/nimble)
+- `bash`
+- `ripgrep` 
+  - `brew install ripgrep` or similar on your OS
 
 ## Setup
 
@@ -56,6 +59,8 @@ Run the agent:
 The agent has access to:
 - `read_file` - Read file contents
 - `write_file` - Write to a file
+- `edit_file` - Replace a unique substring in a file
+- `grep` - Search file contents with a regex pattern using ripgrep
 - `list_directory` - List directory contents
 - `exec_bash` - Run shell commands
 

@@ -89,7 +89,33 @@ let
     )
   )
 
-var allTools* = @[readFile, listDirectory, writeFile, execBash]
+  editFile = ToolDefinition(
+    `type`: "function",
+    function: ToolDefinitionFunction(
+      name: ToolName.editFile,
+      description: "Replaces a unique substring in a file. The old_string must match exactly once in the file. Prefer this over write_file for modifying existing files — include enough surrounding context in old_string to ensure a unique match.",
+      parameters: %*{
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The absolute or relative path to the file to edit"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "The exact substring to find and replace. Must match exactly once in the file."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "The replacement string"
+          }
+        },
+        "required": ["path", "old_string", "new_string"]
+      }
+    )
+  )
+
+var allTools* = @[readFile, listDirectory, writeFile, editFile, execBash]
 
 proc callReadFile*(path: string): string =
   let content = readFile(path)
@@ -150,6 +176,34 @@ proc promptExecBash*(cmd: string): bool =
   styledEcho(ansiStyleCode(styleDim) & "  $ " & cmd & ansiResetCode)
   echo ""
   return confirmPrompt("execute?")
+
+proc promptEditFile*(path: string, oldString: string, newString: string): bool =
+  let fullPath = if path.isAbsolute: path else: getCurrentDir() / path
+  styledEcho(ansiForegroundColorCode(c256Gray), "  → ", resetStyle, fullPath)
+  echo ""
+  # Show before/after diff
+  let oldLines = oldString.splitLines()
+  let newLines = newString.splitLines()
+  for line in oldLines:
+    styledEcho(fgRed, "  - ", resetStyle, ansiStyleCode(styleDim), line, ansiResetCode)
+  for line in newLines:
+    styledEcho(fgGreen, "  + ", resetStyle, ansiStyleCode(styleDim), line, ansiResetCode)
+  echo ""
+  return confirmPrompt("accept edit?")
+
+proc callEditFile*(path: string, oldString: string, newString: string): string =
+  try:
+    let content = readFile(path)
+    let count = content.count(oldString)
+    if count == 0:
+      return "error: old_string not found in file"
+    if count > 1:
+      return "error: old_string matches " & $count & " times (must be unique)"
+    let newContent = content.replace(oldString, newString)
+    writeFile(path, newContent)
+    return "edited"
+  except IOError as err:
+    return "error: " & err.msg
 
 proc callWriteFile*(path: string, content: string): string =
   try:

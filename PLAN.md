@@ -2,7 +2,7 @@
 
 Three new tools to bring girvent to feature-complete for a coding agent.
 
-## 1. edit_file
+## 1. edit_file ✅ COMPLETED
 
 **Purpose**: Replace a unique substring in a file without rewriting the entire file. Saves tokens on every edit.
 
@@ -20,6 +20,8 @@ edit_file(path, old_string, new_string)
 **Implementation**: Pure `strutils` — `find` to locate, `count` to verify uniqueness, string concat to replace. No external deps.
 
 **System prompt addition**: Tell the model to prefer `edit_file` over `write_file` for modifying existing files, and to include enough surrounding context in `old_string` to ensure a unique match.
+
+**Status**: Implemented in `src/tools.nim` and `src/girvent.nim`. Tool is registered and integrated into the agent workflow.
 
 ## 2. grep
 

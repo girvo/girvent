@@ -52,8 +52,9 @@ WORKFLOW:
 
 TOOLS:
 - read_file(path): Read a file's contents. Always read before writing.
-- write_file(path, content): Write a file. Never overwrite without reading first.
-- list_directory(path): List directory contents. Use to explore project structure.
+- write_file(path, content): Write a file. Never overwrite without reading first. Prefer edit_file for modifications.
+- edit_file(path, old_string, new_string): Replace a substring in a file. The old_string must match exactly once. Prefer this over write_file for modifying existing files — include enough surrounding context in old_string to ensure a unique match.
+- list_directory(path): List directory contents. Use to explore project structure. [f] means file, [d] means directory, dont list_directory on files
 - exec_bash(cmd, timeout?): Run a shell command. Use for building, testing, and tasks that read_file/write_file can't handle.
   - Commands time out after 120s by default. Pass timeout=0 for long-running commands (builds, installs), or a custom value in seconds.
   - Prefer read-only and reversible operations; confirm with the user before executing anything destructive
@@ -289,6 +290,16 @@ proc handleToolCalls(choice: var Choice): bool =
           messages.add(initToolCallMessage(toolCall.id, callWriteFile(path, content)))
         else:
           messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected write"))
+      of ToolName.editFile:
+        let
+          path = args["path"].getStr()
+          oldString = args["old_string"].getStr()
+          newString = args["new_string"].getStr()
+        showToolCall($toolCall.function.name, %*{"path": path})
+        if promptEditFile(path, oldString, newString):
+          messages.add(initToolCallMessage(toolCall.id, callEditFile(path, oldString, newString)))
+        else:
+          messages.add(initToolCallMessage(toolCall.id, "user explicitly rejected edit"))
       of ToolName.execBash:
         let
           cmd = args["cmd"].getStr()

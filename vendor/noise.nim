@@ -207,6 +207,8 @@ when promptBasic:
 
         when promptHistory:
           self.history.popLast()
+          if result:
+            self.history.add(self.line.getLine())
     else:
       # input not from a terminal, we should work with piped input, i.e.
       # redirected stdin

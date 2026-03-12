@@ -11,6 +11,14 @@ let bashPath = findExe("bash")
 if bashPath == "":
   raise newException(OSError, "bash not found in PATH")
 
+let rgPath = findExe("rg")
+if rgPath == "":
+  raise newException(OSError, "rg (ripgrep) not found in PATH")
+
+const
+  grepTimeoutMs = 30_000
+  grepMaxMatchesPerFile = 500  # Per-file limit; truncateOutput caps total output
+
 let
   readFile = ToolDefinition(
     `type`: "function",
@@ -115,7 +123,33 @@ let
     )
   )
 
-var allTools* = @[readFile, listDirectory, writeFile, editFile, execBash]
+  grepTool = ToolDefinition(
+    `type`: "function",
+    function: ToolDefinitionFunction(
+      name: ToolName.grep,
+      description: "Search file contents with a regex pattern using ripgrep. Returns matching lines with file paths and line numbers. Use to find symbols, patterns, or text across the codebase.",
+      parameters: %*{
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "The regex pattern to search for"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory or file to search in. Defaults to the working directory."
+          },
+          "glob": {
+            "type": "string",
+            "description": "File glob filter, e.g. \"*.nim\", \"*.py\". Only search files matching this pattern."
+          }
+        },
+        "required": ["pattern"]
+      }
+    )
+  )
+
+var allTools* = @[readFile, listDirectory, writeFile, editFile, grepTool, execBash]
 
 proc callReadFile*(path: string): string =
   let content = readFile(path)
@@ -181,7 +215,6 @@ proc promptEditFile*(path: string, oldString: string, newString: string): bool =
   let fullPath = if path.isAbsolute: path else: getCurrentDir() / path
   styledEcho(ansiForegroundColorCode(c256Gray), "  → ", resetStyle, fullPath)
   echo ""
-  # Show before/after diff
   let oldLines = oldString.splitLines()
   let newLines = newString.splitLines()
   for line in oldLines:
@@ -205,13 +238,6 @@ proc callEditFile*(path: string, oldString: string, newString: string): string =
   except IOError as err:
     return "error: " & err.msg
 
-proc callWriteFile*(path: string, content: string): string =
-  try:
-    writeFile(path, content)
-    return "written"
-  except IOError as err:
-    return "error: " & err.msg
-
 const maxOutputLines = 200
 
 proc truncateOutput(output: string): (string, string) =
@@ -220,6 +246,70 @@ proc truncateOutput(output: string): (string, string) =
   let body = lines[0 ..< min(maxOutputLines, lines.len)].join("\n")
   let suffix = if truncated: "\n… (" & $(lines.len - maxOutputLines) & " more lines truncated)" else: ""
   (body, suffix)
+
+proc callGrep*(pattern: string, path: string = ".", glob: string = ""): string =
+  if not fileExists(path) and not dirExists(path):
+    return "error: path does not exist: " & path
+
+  # Use temp file to avoid pipe buffer deadlock (same pattern as callExecBash)
+  let tmpPath = getTempDir() / "girvent_grep_" & $getCurrentProcessId() & ".out"
+  let errPath = getTempDir() / "girvent_grep_" & $getCurrentProcessId() & "_err.out"
+  defer:
+    try: removeFile(tmpPath)
+    except: discard
+    try: removeFile(errPath)
+    except: discard
+
+  var args = @["--vimgrep", "--color", "never", "--max-count", $grepMaxMatchesPerFile]
+  if glob != "":
+    args.add("--glob")
+    args.add(glob)
+  args.add(pattern)
+  args.add(path)
+
+  try:
+    let fullCmd = rgPath & " " & args.join(" ") & " > " & quoteShell(tmpPath) & " 2> " & quoteShell(errPath)
+    let process = startProcess(bashPath, args = ["-c", fullCmd], options = {poUsePath})
+    let exitCode = waitForExit(process, grepTimeoutMs)
+
+    if exitCode == -1:
+      kill(process)
+      discard waitForExit(process)
+      close(process)
+      return "error: grep timed out after " & $(grepTimeoutMs div 1000) & "s"
+
+    close(process)
+
+    var stderr = ""
+    try: stderr = readFile(errPath)
+    except: discard
+
+    let output = if fileExists(tmpPath): readFile(tmpPath) else: ""
+
+    if exitCode == 1:
+      return "no matches found"
+
+    if exitCode != 0:
+      if stderr.strip().len > 0:
+        return "error: " & stderr.strip()
+      else:
+        return "error: rg exited with code " & $exitCode
+
+    if output == "":
+      return "no matches found"
+
+    let (body, suffix) = truncateOutput(output)
+    return body & suffix
+
+  except OSError as err:
+    return "error: " & err.msg
+
+proc callWriteFile*(path: string, content: string): string =
+  try:
+    writeFile(path, content)
+    return "written"
+  except IOError as err:
+    return "error: " & err.msg
 
 proc callExecBash*(cmd: string, timeout: int = 120): string =
   let tmpPath = getTempDir() / "girvent_" & $getCurrentProcessId() & ".out"
@@ -234,7 +324,6 @@ proc callExecBash*(cmd: string, timeout: int = 120): string =
     let exitCode = waitForExit(process, timeoutMs)
 
     if exitCode == -1:
-      # Timed out — kill and return partial output
       kill(process)
       discard waitForExit(process)
       close(process)
